@@ -6,6 +6,11 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		4C748B922FACD72C00FD75D1 /* ClerkKit in Frameworks */ = {isa = PBXBuildFile; productRef = 4C748B912FACD72C00FD75D1 /* ClerkKit */; };
+		4C748B942FACD72C00FD75D1 /* ClerkKitUI in Frameworks */ = {isa = PBXBuildFile; productRef = 4C748B932FACD72C00FD75D1 /* ClerkKitUI */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
 		4C748B802FACD1B400FD75D1 /* Stryde IOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Stryde IOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -23,6 +28,8 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				4C748B922FACD72C00FD75D1 /* ClerkKit in Frameworks */,
+				4C748B942FACD72C00FD75D1 /* ClerkKitUI in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -65,6 +72,8 @@
 			);
 			name = "Stryde IOS";
 			packageProductDependencies = (
+				4C748B912FACD72C00FD75D1 /* ClerkKit */,
+				4C748B932FACD72C00FD75D1 /* ClerkKitUI */,
 			);
 			productName = "Stryde IOS";
 			productReference = 4C748B802FACD1B400FD75D1 /* Stryde IOS.app */;
@@ -94,6 +103,9 @@
 			);
 			mainGroup = 4C748B772FACD1B400FD75D1;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				4C748B902FACD72C00FD75D1 /* XCRemoteSwiftPackageReference "clerk-ios" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 4C748B812FACD1B400FD75D1 /* Products */;
 			projectDirPath = "";
@@ -256,6 +268,7 @@
 				DEVELOPMENT_TEAM = 3GNU7SWF7D;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Stryde needs your location to generate personalized running routes and track your run.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -288,6 +301,7 @@
 				DEVELOPMENT_TEAM = 3GNU7SWF7D;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Stryde needs your location to generate personalized running routes and track your run.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -332,6 +346,30 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		4C748B902FACD72C00FD75D1 /* XCRemoteSwiftPackageReference "clerk-ios" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/clerk/clerk-ios";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.1.1;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		4C748B912FACD72C00FD75D1 /* ClerkKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 4C748B902FACD72C00FD75D1 /* XCRemoteSwiftPackageReference "clerk-ios" */;
+			productName = ClerkKit;
+		};
+		4C748B932FACD72C00FD75D1 /* ClerkKitUI */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 4C748B902FACD72C00FD75D1 /* XCRemoteSwiftPackageReference "clerk-ios" */;
+			productName = ClerkKitUI;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 4C748B782FACD1B400FD75D1 /* Project object */;
 }

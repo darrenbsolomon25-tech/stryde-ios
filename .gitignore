@@ -1,0 +1,30 @@
+# Xcode build artifacts
+build/
+DerivedData/
+*.xcuserstate
+
+# User-specific Xcode settings
+xcuserdata/
+*.xcuserdatad/
+*.xcodeproj/xcuserdata/
+*.xcodeproj/project.xcworkspace/xcuserdata/
+
+# Swift Package Manager
+.build/
+.swiftpm/xcode/
+
+# macOS
+.DS_Store
+*.pem
+
+# Fastlane (future)
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots/**/*.png
+fastlane/test_output
+
+# Archives (built locally, uploaded to TestFlight via Xcode)
+*.xcarchive
+
+# Environment / secrets (if you ever add xcconfig secrets)
+Secrets.xcconfig
