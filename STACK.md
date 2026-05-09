@@ -12,12 +12,12 @@ Last updated: 2026-05-09
 
 | Repo | URL | Purpose |
 |---|---|---|
-| `Stryde IOS` | https://github.com/darrenbsolomon25-tech/stryde-ios | SwiftUI iOS app (this repo) |
+| `Stryde IOS` | not yet pushed to GitHub — local only at `/Users/darrensolomon/Stryde IOS/` | SwiftUI iOS app (this repo) |
 | `stryde-route-service` | https://github.com/darrenbsolomon25-tech/stryde-route-service | Node/Express backend |
 
 - Account: `darrenbsolomon25-tech`
 - Auth: `gh auth login` (GitHub CLI, logged in via browser)
-- Both repos are **private**.
+- `stryde-route-service` is **private**. Push `Stryde IOS` to GitHub before TestFlight.
 
 ## Railway — backend hosting + database
 
