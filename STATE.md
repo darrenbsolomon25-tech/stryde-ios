@@ -1,6 +1,6 @@
 # Stryde iOS — current state
 
-Last updated: 2026-05-09 (loop fallback fix deployed; color scheme unified to #27272D)
+Last updated: 2026-05-10 (app icon added)
 
 Source of truth for what the app **actually does right now**, not what it should do.
 If you change something, update the relevant section in the same sitting.
@@ -54,10 +54,16 @@ overlay on `HomeView`.
    Note: `postRouteFeedback` is defined in `APIService` but the call in `RoutePreviewView`
    may not be wired yet — verify before marking done.
 
-7. **RunView** — live GPS tracking via `LocationManager`. Accumulates distance with
-   `haversineDistanceMiles`. Camera modes: follow (behind-runner, pitch 65) and
-   overhead (north-up). Step-by-step nav: advances `currentStep` when within 30m
-   of the step's location. Timer counts up. "Finish Run" → `RunSummaryView`.
+7. **RunView** — live GPS tracking via `CLLocationUpdate.liveUpdates(.fitness)`.
+   Accumulates distance with `haversineDistanceMiles` (raw GPS). Camera modes:
+   follow (behind-runner, pitch 65, animated) and overhead (north-up, animated).
+   Step-by-step nav: advances `currentStep` when within 25m of the step's location.
+   Timer counts up. "Finish Run" → `RunSummaryView`.
+   GPS is smoothed via exponential moving average (alpha=0.3) before display.
+   Runner chevron projects onto nearest route segment (`projectOnSegment`) so it
+   stays on the polyline. Completed segment renders grey (#666666, 4pt); remaining
+   orange (#FF6B35, 6pt); split is exact at the projected runner position.
+   Camera animates between fixes (.linear 0.8s follow / 0.5s overhead).
    **Not yet confirmed working on device** — needs a real outdoor run test.
 
 8. **RunSummaryView** — post-run stats (distance, duration, pace, route name).
@@ -118,7 +124,6 @@ Shared `jsonRequest` helper: 20s timeout, surfaces backend `reason`/`error`.
 
 ## Not yet built (iOS-specific)
 
-- App icon + splash (Assets.xcassets still has Xcode placeholders)
 - "Back to Home" UX after a run (currently requires tapping back 2-3 times through
   the NavigationStack — need a dedicated "Done" button that pops to root)
 - Error UX in BuildRunView
@@ -126,10 +131,23 @@ Shared `jsonRequest` helper: 20s timeout, surfaces backend `reason`/`error`.
 
 ## Backend state
 
-The route dispatcher (`route/index.js`) now falls back from v2 (Overpass OSM graph)
-to v1 (Mapbox loop pipeline) when the graph load fails with "Could not load graph".
-Committed `bbbf003`, deployed to Railway 2026-05-09. Loop generation now works
-globally even when Overpass is rate-limited or slow.
+Committed `d441884`, deployed to Railway 2026-05-12. Three root causes of bad
+route quality fixed in a single deploy:
+
+1. **Triangle loop generation (S→A→B→S).** The old S→A→S algorithm produced
+   out-and-back parallel-street routes. The new approach samples two anchor
+   nodes 60° apart and pathfinds three legs, each on different streets.
+   Routes now go somewhere, cross over, and come back.
+
+2. **Turn-by-turn steps populated.** `steps: []` was hardcoded since v2
+   launched. `navigation/steps.js` now extracts real turn instructions from
+   the winning route's node sequence. RunView navigation has actual steps.
+
+3. **Profile preferences working for the first time.** iOS sends
+   `terrain: ["Parks","Waterfront",...]` (array). Backend was reading
+   `profile.preferredTerrain` (single string) — nothing ever matched, every
+   request generated with all-zero prefs. Now fixed. Terrain selections from
+   onboarding actually influence edge weights and route ranking.
 
 See `stryde-route-service/STATE.md` for full backend state.
 
@@ -137,6 +155,8 @@ See `stryde-route-service/STATE.md` for full backend state.
 
 ## Things that look like features but aren't
 
-- `customRequest` and `profile` reach the backend but routing ignores them (future)
-- Personalization: profile is sent, but generation doesn't use it yet
-- Preference learning: zero implementation
+- Preference learning: zero implementation (routes use profile prefs, but no
+  feedback loop to learn from run history yet)
+- Street names in turn-by-turn: steps say "Turn left" with no street name
+  (graph doesn't store OSM street names; a future build-graph rebuild adds them)
+- `terrain.hilly` pref axis: parsed but unused (no elevation data in graph yet)
