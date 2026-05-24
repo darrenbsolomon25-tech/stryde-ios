@@ -4,6 +4,33 @@ Items moved here once done. Full detail preserved for reference.
 
 ---
 
+## A. 🎨 Error UX in BuildRunView [DONE 2026-05-24]
+
+`errorMessage: String?` state added to `BuildRunView`. A `.alert("Route Error", ...)`
+modifier bound to that state shows the `error.localizedDescription` from both catch
+blocks: `generateRoute()` and `retryWithSuggestedStart()`. Previously both were silent
+`print()` only. Matches the `HomeView` pattern exactly.
+
+Also in this commit: `previousRequestId` wired through `APIService.generateRoute()` and
+`RoutePreviewView` so Regenerate taps use the backend's survivor cache; RunView
+substantially improved (EMA smoothing, segment projection, fitness GPS mode, animated
+camera) ahead of the item B device test.
+
+---
+
+## 9. 📦 App icon [DONE 2026-05-10]
+
+Both icon variants extracted from `stryde app icons.png`, processed to 1024x1024,
+and wired into `Assets.xcassets/AppIcon.appiconset`:
+
+- `icon-dark.png` — green background (`#B1CB54`), dark runner; used for **light mode**
+- `icon-light.png` — `#27272D` background, green + white runner; used for **dark mode + tinted**
+
+Rounded-corner artifacts from the original design file removed via flood fill.
+`Contents.json` updated with filenames for all three slots (universal, dark, tinted).
+
+---
+
 ## Swift rewrite — all screens [DONE 2026-05-07 to 2026-05-09]
 
 The original Stryde app was built in React Native (Expo SDK 55). After all the major

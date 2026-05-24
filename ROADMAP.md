@@ -1,6 +1,6 @@
 # Stryde iOS roadmap
 
-Last updated: 2026-05-09
+Last updated: 2026-05-24
 
 How to use this file:
 
@@ -16,15 +16,11 @@ Legend: 🔒 = security / correctness, 🔧 = wiring, 🎨 = UI, 📦 = release,
 
 ---
 
-## A. 🎨 Error UX in BuildRunView [START A NEW CHAT]
+## A. ✅ Error UX in BuildRunView — DONE 2026-05-24
 
-**Goal:** BuildRunView silently swallows route generation errors. Users get a frozen
-spinner with no feedback. Add a `Route Error` alert the same way HomeView has it.
-
-**Touches:** `Stryde IOS/BuildRunView.swift`
-
-**Done when:** triggering a network error while generating a route from BuildRunView
-shows a readable error alert instead of a silent failure.
+`errorMessage` state + `Route Error` alert added. Both catch blocks in
+`generateRoute()` and `retryWithSuggestedStart()` now surface errors instead
+of swallowing them silently. Matches the HomeView pattern exactly.
 
 ---
 
@@ -61,30 +57,13 @@ with no intermediate screens.
 
 ---
 
-## D. 🔧 PostRouteFeedback wiring verification [START A NEW CHAT]
+## D. ✅ PostRouteFeedback wiring verification — DONE 2026-05-15
 
-**Goal:** confirm `APIService.postRouteFeedback(requestId, event)` is correctly called
-from `RoutePreviewView` when the user taps "Start Run" (accept) and "Regenerate" (reject).
-This is the feedback loop that trains the ML reranker over time.
-
-**Touches:** `Stryde IOS/RoutePreviewView.swift`, `Stryde IOS/APIService.swift`
-
-**Done when:** Railway logs show `POST /route-feedback` events when accept/reject
-actions happen in the app.
-
----
-
-## 9. 📦 App icon + splash screen [START A NEW CHAT]
-
-**Goal:** replace the Xcode placeholder assets so the app looks like a real product.
-
-**Touches:** `Stryde IOS/Assets.xcassets` (AppIcon set + AccentColor).
-
-**What you do:** design or commission an icon. Claude can't draw — use a designer,
-Figma, or a tool like IconKitchen (generates all required sizes). Xcode requires
-the full AppIcon set (various sizes for App Store, iPad, Spotlight, etc.).
-
-**Done when:** the app launches with branded visuals, not the Xcode defaults.
+Confirmed wired. iOS fires `postRouteFeedback("accept")` on "Start Run" and
+`postRouteFeedback("reject")` on "Regenerate". Backend logs to `routes.jsonl`.
+Training script joins by `requestId`. Daily cron retrains weights.
+Also fixed: `outLengthM`/`returnLengthM` now logged in request rows so the
+`symmetry` training feature works correctly (was always 1.0 before).
 
 ---
 

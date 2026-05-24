@@ -1,6 +1,6 @@
 # Stryde iOS — current state
 
-Last updated: 2026-05-10 (app icon added)
+Last updated: 2026-05-24 (item A done; RunView improvements; previousRequestId wired)
 
 Source of truth for what the app **actually does right now**, not what it should do.
 If you change something, update the relevant section in the same sitting.
@@ -111,22 +111,43 @@ Shared `jsonRequest` helper: 20s timeout, surfaces backend `reason`/`error`.
 
 ## What's broken / half-wired
 
-- **RunView GPS tracking not confirmed on-device** — code is there, but a real
-  outdoor run test is needed to confirm step advancement, distance accumulation, and
-  camera follow mode all work correctly.
-- **BuildRunView has silent catch blocks** — route generation errors aren't shown to
-  the user (unlike HomeView, which has a `Route Error` alert). Needs the same fix.
-- **`postRouteFeedback` wiring unverified** — check that `RoutePreviewView` actually
-  calls it on "Start Run" and "Regenerate" before marking this done.
+- **RunView GPS tracking not confirmed on-device** — code is substantially
+  improved (EMA smoothing, segment projection, fitness GPS mode, animated camera,
+  exact polyline split) but a real outdoor run test is still needed to confirm
+  step advancement, distance accumulation, and camera follow mode work correctly.
+- **`postRouteFeedback` wiring confirmed** — fires on "Start Run" (accept) and
+  "Regenerate" (reject). Backend logs to `routes.jsonl`. Training script joins
+  feedback rows to request rows by `requestId`. Daily cron retrains weights.
+  `outLengthM`/`returnLengthM` now logged in request rows so `symmetry` feature
+  trains correctly.
 - **Backend URL hardcoded** — `APIService.swift:91`. No dev/staging switch.
 - **Turn-by-turn advance logic** — step advances at 30m proximity. Needs a real run
   to confirm the cadence feels right.
+
+## RunView improvements (coded, not yet device-tested)
+
+- GPS mode: `.automotiveNavigation` → `.fitness` (correct for running pace).
+- EMA smoothing (alpha=0.3) on incoming GPS coordinates before display — reduces
+  satellite-bounce jitter on the runner marker without adding lag.
+- `nearestRoutePoint` replaces `updatePassedWaypoints` — orthogonal segment
+  projection means the chevron slides continuously along the polyline instead of
+  snapping to discrete waypoints. Lookahead window of 60 segments.
+- `completedCoords` / `remainingCoords` extracted as computed properties — fixes
+  `@MapContentBuilder` compilation restriction (let bindings not allowed inside).
+- Completed segment: grey #666666, 4pt. Split is exact at projected runner position.
+- Camera animated: `.linear(0.8s)` follow mode, `.linear(0.5s)` overhead.
+
+## previousRequestId wiring (coded)
+
+`APIService.generateRoute()` now accepts `previousRequestId`. `RoutePreviewView`
+passes `route.requestId` on every Regenerate tap. Backend pops the next cached
+survivor (~500ms) instead of running the full pipeline (~2-3s).
+Verify the 2026-05-15 backend deploy is live on Railway before relying on this.
 
 ## Not yet built (iOS-specific)
 
 - "Back to Home" UX after a run (currently requires tapping back 2-3 times through
   the NavigationStack — need a dedicated "Done" button that pops to root)
-- Error UX in BuildRunView
 - TestFlight upload + first beta testers
 
 ## Backend state
@@ -148,6 +169,24 @@ route quality fixed in a single deploy:
    `profile.preferredTerrain` (single string) — nothing ever matched, every
    request generated with all-zero prefs. Now fixed. Terrain selections from
    onboarding actually influence edge weights and route ranking.
+
+**2026-05-15 — route quality improvements (not yet deployed):**
+
+4. **Anchor jitter.** `sampling/sectors.js` now adds a random 0–45° offset to
+   all 8 sector bearings per request. Same user, same location, same distance
+   now produces a different loop every time.
+
+5. **Survivor cache for Regenerate.** After ranking, `v2/index.js` stores
+   runners-up (ranked[1..n]) in memory keyed by `requestId`, with nav steps
+   pre-computed. When the app sends `previousRequestId` on Regenerate, the
+   backend pops the next survivor and only runs a Claude naming call (~500ms)
+   instead of the full pipeline (~2-3s). Falls back to full pipeline with fresh
+   jitter when survivors are exhausted or cache expires (10 min TTL).
+
+6. **`symmetry` training feature fixed.** `outLengthM` and `returnLengthM` are
+   now logged in the `type:"request"` row so `train-reranker.js` can compute
+   the `symmetry` feature correctly. Previously defaulted to 1.0 (symmetric)
+   for all training examples.
 
 See `stryde-route-service/STATE.md` for full backend state.
 

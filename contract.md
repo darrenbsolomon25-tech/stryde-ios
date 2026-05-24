@@ -34,7 +34,8 @@ Requires `Authorization: Bearer <token>`.
 | `routeType`     | `"loop"` / `"one-way"` | no | defaults to `"loop"` |
 | `customRequest` | string / null     | no       | up to 500 chars; consumed by v2 preference parser |
 | `profile`       | object / null     | no       | shape below; used by v2 scoring |
-| `engine`        | `"v1"` / `"v2"` / null | no | explicit engine override for debugging |
+| `engine`            | `"v1"` / `"v2"` / null | no | explicit engine override for debugging |
+| `previousRequestId` | string / null           | no | `requestId` from the previous response. When present, the backend pops the next cached survivor for that session instead of running the full pipeline (~500ms vs ~2-3s). Falls back to full pipeline if cache is empty or expired (10 min TTL). |
 
 #### `profile` shape
 

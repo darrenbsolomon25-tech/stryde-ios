@@ -11,6 +11,9 @@ private final class RunRef {
     var elapsedSec: Int = 0
     var passedWaypointIndex: Int = 0
     var currentStepIndex: Int = 0
+    var smoothLat: Double = 0
+    var smoothLng: Double = 0
+    var isFirstLoc: Bool = true
     init(startCoord: CLLocationCoordinate2D) { lastCoord = startCoord }
 }
 
@@ -85,6 +88,24 @@ struct RunView: View {
         return route.steps[nextIdx]
     }
 
+    // Computed here (not inside Map { }) because @MapContentBuilder only accepts
+    // MapContent-returning expressions — let bindings produce () and won't compile.
+    private var completedCoords: [CLLocationCoordinate2D] {
+        guard passedWaypointIndex > 0 else { return [] }
+        var pts = Array(route.waypoints[0...passedWaypointIndex])
+            .map { CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude) }
+        pts.append(currentCoord)
+        return pts
+    }
+
+    private var remainingCoords: [CLLocationCoordinate2D] {
+        let tail: [CLLocationCoordinate2D] = passedWaypointIndex + 1 < route.waypoints.count
+            ? Array(route.waypoints[(passedWaypointIndex + 1)...])
+                .map { CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude) }
+            : []
+        return [currentCoord] + tail
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             if let step = nextStep {
@@ -92,18 +113,14 @@ struct RunView: View {
             }
 
             Map(position: $cameraPosition) {
-                // Faded completed segment
-                if passedWaypointIndex > 0 {
-                    let done = Array(route.waypoints[0...passedWaypointIndex])
-                        .map { CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude) }
-                    MapPolyline(coordinates: done)
-                        .stroke(Color(hex: "#FF6B35").opacity(0.35), lineWidth: 6)
+                // Completed segment: start → projected runner position (exact split)
+                if completedCoords.count > 1 {
+                    MapPolyline(coordinates: completedCoords)
+                        .stroke(Color(hex: "#666666"), lineWidth: 4)
                 }
-                // Bright remaining segment
-                let remaining = Array(route.waypoints[passedWaypointIndex...])
-                    .map { CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude) }
-                if remaining.count > 1 {
-                    MapPolyline(coordinates: remaining)
+                // Remaining segment: projected runner position → end (exact split)
+                if remainingCoords.count > 1 {
+                    MapPolyline(coordinates: remainingCoords)
                         .stroke(Color(hex: "#FF6B35"), lineWidth: 6)
                 }
                 // Start pin
@@ -241,7 +258,7 @@ struct RunView: View {
         startTimer()
         locationTask = Task {
             do {
-                let updates = CLLocationUpdate.liveUpdates(.automotiveNavigation)
+                let updates = CLLocationUpdate.liveUpdates(.fitness)
                 for try await update in updates {
                     guard !Task.isCancelled, let loc = update.location else { continue }
                     await MainActor.run { processLocation(loc) }
@@ -291,14 +308,36 @@ struct RunView: View {
             }
         }
 
-        ref.lastCoord = coord
+        ref.lastCoord = coord  // raw GPS kept for distance accumulation
         ref.lastHeading = newHeading
-        currentCoord = coord
         heading = newHeading
 
-        updateCamera(coord: coord, hdg: newHeading)
+        // Exponential moving average smooths GPS noise so the marker doesn't
+        // jitter on every tick. Alpha 0.3 keeps motion responsive at running
+        // pace without amplifying satellite-bounce artifacts.
+        let alpha = 0.3
+        if ref.isFirstLoc {
+            ref.smoothLat = coord.latitude
+            ref.smoothLng = coord.longitude
+            ref.isFirstLoc = false
+        } else {
+            ref.smoothLat = alpha * coord.latitude + (1 - alpha) * ref.smoothLat
+            ref.smoothLng = alpha * coord.longitude + (1 - alpha) * ref.smoothLng
+        }
+        let smooth = CLLocationCoordinate2D(latitude: ref.smoothLat, longitude: ref.smoothLng)
+
+        // Project the smoothed position onto the nearest route segment so the
+        // chevron slides continuously along the polyline instead of jumping
+        // between discrete waypoints.
+        let (snapIdx, snapped) = nearestRoutePoint(to: smooth)
+        if snapIdx > ref.passedWaypointIndex {
+            ref.passedWaypointIndex = snapIdx
+            passedWaypointIndex = snapIdx
+        }
+        currentCoord = snapped
+
+        updateCamera(coord: snapped, hdg: newHeading)
         updateStep(coord: coord)
-        updatePassedWaypoints(coord: coord)
     }
 
     private func updateCamera(coord: CLLocationCoordinate2D, hdg: Double) {
@@ -306,13 +345,17 @@ struct RunView: View {
             // Offset the camera center ~60m ahead of the runner so they appear
             // near the bottom of the screen — same Waze-style effect as the RN app.
             let ahead = offsetAhead(lat: coord.latitude, lng: coord.longitude, bearing: hdg, meters: 60)
-            cameraPosition = .camera(MapCamera(
-                centerCoordinate: ahead, distance: 200, heading: hdg, pitch: 65
-            ))
+            withAnimation(.linear(duration: 0.8)) {
+                cameraPosition = .camera(MapCamera(
+                    centerCoordinate: ahead, distance: 200, heading: hdg, pitch: 65
+                ))
+            }
         } else {
-            cameraPosition = .camera(MapCamera(
-                centerCoordinate: coord, distance: 600, heading: 0, pitch: 0
-            ))
+            withAnimation(.linear(duration: 0.5)) {
+                cameraPosition = .camera(MapCamera(
+                    centerCoordinate: coord, distance: 600, heading: 0, pitch: 0
+                ))
+            }
         }
     }
 
@@ -332,16 +375,46 @@ struct RunView: View {
         }
     }
 
-    private func updatePassedWaypoints(coord: CLLocationCoordinate2D) {
-        let end = min(ref.passedWaypointIndex + 20, route.waypoints.count)
-        for i in ref.passedWaypointIndex..<end {
-            let wp = route.waypoints[i]
-            let dist = haversineDistanceMiles(coord.latitude, coord.longitude, wp.latitude, wp.longitude)
-            if dist < 0.02 { ref.passedWaypointIndex = i }
+    // Projects `coord` onto each route segment in the lookahead window and
+    // returns the segment start index plus the exact projected coordinate.
+    // Segment projection (vs. nearest-waypoint) makes the chevron slide
+    // continuously along the polyline rather than snapping between points.
+    private func nearestRoutePoint(to coord: CLLocationCoordinate2D) -> (index: Int, snapped: CLLocationCoordinate2D) {
+        let wps = route.waypoints
+        guard wps.count > 1 else {
+            let fallback = wps.first.map { CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude) } ?? coord
+            return (0, fallback)
         }
-        if ref.passedWaypointIndex > passedWaypointIndex {
-            passedWaypointIndex = ref.passedWaypointIndex
+        let searchStart = max(0, ref.passedWaypointIndex - 1)
+        let searchEnd = min(wps.count - 2, searchStart + 60)
+        var bestIdx = searchStart
+        var bestDist = Double.infinity
+        var bestSnapped = coord
+        for i in searchStart...searchEnd {
+            let a = CLLocationCoordinate2D(latitude: wps[i].latitude, longitude: wps[i].longitude)
+            let b = CLLocationCoordinate2D(latitude: wps[i + 1].latitude, longitude: wps[i + 1].longitude)
+            let (proj, d) = projectOnSegment(coord, from: a, to: b)
+            if d < bestDist { bestDist = d; bestIdx = i; bestSnapped = proj }
         }
+        return (bestIdx, bestSnapped)
+    }
+
+    // Orthogonal projection of p onto segment [a, b]. Uses planar (degree-space)
+    // approximation — accurate enough for the short segments in a running route.
+    // Returns the projected coordinate and the haversine distance from p to it.
+    private func projectOnSegment(
+        _ p: CLLocationCoordinate2D,
+        from a: CLLocationCoordinate2D,
+        to b: CLLocationCoordinate2D
+    ) -> (CLLocationCoordinate2D, Double) {
+        let abx = b.longitude - a.longitude, aby = b.latitude - a.latitude
+        let ab2 = abx * abx + aby * aby
+        guard ab2 > 0 else {
+            return (a, haversineDistanceMiles(p.latitude, p.longitude, a.latitude, a.longitude))
+        }
+        let t = max(0, min(1, ((p.longitude - a.longitude) * abx + (p.latitude - a.latitude) * aby) / ab2))
+        let q = CLLocationCoordinate2D(latitude: a.latitude + t * aby, longitude: a.longitude + t * abx)
+        return (q, haversineDistanceMiles(p.latitude, p.longitude, q.latitude, q.longitude))
     }
 
     private func handleStop() {

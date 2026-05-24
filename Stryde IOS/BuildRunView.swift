@@ -23,6 +23,7 @@ struct BuildRunView: View {
     @State private var showSuggestionAlert = false
     @State private var showSnapAlert = false
     @State private var snapMessage = ""
+    @State private var errorMessage: String? = nil
 
     // Pre-fill terrain from the user's profile, same as the RN screen does.
     init(profile: UserProfile?, coordinate: CLLocationCoordinate2D) {
@@ -158,6 +159,14 @@ struct BuildRunView: View {
             Button("Cancel", role: .cancel) {}
             Button("Walk there →") { navigateToPreview = true }
         } message: { Text(snapMessage) }
+        .alert("Route Error", isPresented: Binding(
+            get: { errorMessage != nil },
+            set: { if !$0 { errorMessage = nil } }
+        )) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(errorMessage ?? "")
+        }
     }
 
     // MARK: - Generation
@@ -200,6 +209,7 @@ struct BuildRunView: View {
                 }
             }
         } catch {
+            errorMessage = error.localizedDescription
             print("[BuildRunView] generate failed: \(error.localizedDescription)")
         }
     }
@@ -227,6 +237,7 @@ struct BuildRunView: View {
                 navigateToPreview = true
             }
         } catch {
+            errorMessage = error.localizedDescription
             print("[BuildRunView] suggestion retry failed: \(error.localizedDescription)")
         }
     }

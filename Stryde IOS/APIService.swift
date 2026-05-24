@@ -208,7 +208,8 @@ class APIService {
         longitude: Double,
         distanceMiles: Double,
         customRequest: String? = nil,
-        routeType: String = "loop"
+        routeType: String = "loop",
+        previousRequestId: String? = nil
     ) async throws -> RouteResult {
         let distanceKm = distanceMiles * 1.60934
 
@@ -230,6 +231,7 @@ class APIService {
         ]
         if let cr = customRequest { body["customRequest"] = cr }
         if let pb = profileBody { body["profile"] = pb }
+        if let prev = previousRequestId { body["previousRequestId"] = prev }
 
         // Raw decode so we can check for suggestedStart before parsing the route
         struct RawResponse: Decodable {

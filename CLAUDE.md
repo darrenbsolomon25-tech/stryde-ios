@@ -22,11 +22,14 @@ Do not touch it or reference it for new work.
 - `Stryde IOS/ContentView.swift` — root view; routes between `SignInView`, `OnboardingView`,
   and `HomeView` based on `AppState.bootDone` + `AppState.hasProfile`
 - `Stryde IOS/AppState.swift` — `@Observable` singleton; holds `userProfile`, `runs`,
-  `localRuns`; owns the boot sequence (touchUser → syncProfile → syncRuns → initial route)
+  `localRuns`; owns the boot sequence (touchUser → syncProfile → syncRuns → loadLocalRuns →
+  bootDone = true); `ContentView` reacts: no profile → `OnboardingView`, has profile → `HomeView`
 - `Stryde IOS/APIService.swift` — all backend calls; shared `jsonRequest` helper with JWT
   via `tokenGetter`; 401 → `onAuthError` callback → sign out
 - `Stryde IOS/LocalRun.swift` — `LocalRun` struct + `haversineDistanceMiles` + `parseMiles`
   + `bearingCardinal` helpers
+- `Stryde IOS/LocationManager.swift` — `CLLocationManagerDelegate` wrapper for `@Observable`;
+  feeds live GPS coordinates into `RunView` during active runs
 
 **Screens (all in `Stryde IOS/`):**
 - `SignInView.swift` — email + password sign-in/sign-up with Clerk

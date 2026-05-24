@@ -167,7 +167,8 @@ struct RoutePreviewView: View {
                 longitude: location.longitude,
                 distanceMiles: parseMiles(genParams.distance),
                 customRequest: genParams.customRequest,
-                routeType: genParams.routeType
+                routeType: genParams.routeType,
+                previousRequestId: route.requestId
             )
             if case .route(let newRoute) = result {
                 route = newRoute
