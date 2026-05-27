@@ -2,15 +2,25 @@
 
 Last updated: 2026-05-24
 
-How to use this file:
+---
 
-- Work items are numbered in priority order.
-- **Each numbered item = one fresh chat.** When you log on, start a new conversation,
-  paste the item's heading into your first message, and say "let's do this one."
-- Check items off (`[x]`) as you finish them. Update `STATE.md` before closing the chat.
-- Don't jump ahead. Items later in the list are blocked on earlier ones for real reasons
-  (noted as "Blocked by:"). Skipping creates more work, not less.
-- Completed items live in `ROADMAP_COMPLETED.md`.
+## What we're building
+
+Stryde is a loop route generator. The bet: open the app, say what you want (or just pick a distance), and get a genuinely good loop from wherever you are — the right terrain, the right difficulty, real turn-by-turn navigation home. 30 seconds from open to running.
+
+The differentiator is not social features, a community marketplace, or weather widgets. It's that the generator is actually good. Routes that match your preferences for real. Natural language requests that change the actual route, not just the name it gets called. A system that learns from your runs over time.
+
+Everything on this roadmap is in service of that. If an idea doesn't make the route better or the running experience better, it's not on this list.
+
+---
+
+## How to use this file
+
+- Work items are in priority order.
+- **Each item = one fresh chat.** Start a new conversation, paste the heading into your first message, say "let's do this one."
+- Check items off (`[x]`) when done. Update `STATE.md` before closing the chat.
+- Don't jump ahead. Blocked-by notes are real — skipping creates more work.
+- Completed items move to `ROADMAP_COMPLETED.md`.
 
 Legend: 🔒 = security / correctness, 🔧 = wiring, 🎨 = UI, 📦 = release, 🏛 = architecture.
 
@@ -44,7 +54,7 @@ with real GPS movement. Needs an actual outdoor run test.
 
 ## C. 🎨 "Back to Home" UX after a run [START A NEW CHAT]
 
-**Blocked by:** item B (confirm the run flow works first).
+**Blocked by:** B.
 
 **Goal:** after finishing a run and viewing the summary, the user currently has to
 tap "back" 2-3 times through the NavigationStack to get home. One "Done" button
@@ -57,131 +67,150 @@ with no intermediate screens.
 
 ---
 
-## D. ✅ PostRouteFeedback wiring verification — DONE 2026-05-15
+## D. ✅ PostRouteFeedback wiring — DONE 2026-05-15
 
 Confirmed wired. iOS fires `postRouteFeedback("accept")` on "Start Run" and
 `postRouteFeedback("reject")` on "Regenerate". Backend logs to `routes.jsonl`.
 Training script joins by `requestId`. Daily cron retrains weights.
-Also fixed: `outLengthM`/`returnLengthM` now logged in request rows so the
-`symmetry` training feature works correctly (was always 1.0 before).
 
 ---
 
-## 14. 📦 TestFlight beta [START A NEW CHAT]
+## E. 📦 TestFlight beta [START A NEW CHAT]
 
-**Blocked by:** items A, B, C, D, and 9.
+**Blocked by:** B, C.
 
-**Goal:** get the app in front of beta testers via TestFlight.
-
-**What you do:**
-1. Product → Archive in Xcode (builds a release `.xcarchive`)
-2. Distribute App → App Store Connect (uploads to TestFlight)
-3. Add external testers in App Store Connect → TestFlight
-
-No EAS Build needed — Xcode's native archive workflow handles this for a native Swift app.
-
-**Apple Developer account:** enrolled ✅
-**Bundle ID:** `com.runstryde.app` registered ✅
-**App Store Connect record:** "Stryde Running" (App ID: 6766527466) ✅
-
-**Done when:** you and at least one other person can install the app via TestFlight.
-
----
-
-## 14.5. 📦 Business infrastructure — domain, email, Google Workspace [DO IT YOURSELF]
-
-**Blocked by:** nothing. Can be done any time.
-
-**Goal:** Stryde has a real home on the internet and a professional identity before
-it hits the App Store.
+**Goal:** get the app in front of real testers. Nothing else matters until this is done.
+Real people running real routes will tell you what to fix in the generator. You cannot
+know that from the simulator.
 
 **What to do:**
-1. **Domain** — register `stryde.run` (or `getstryde.com`, `stryde.app`) via Namecheap
-   or Cloudflare Registrar. Lock down WHOIS privacy.
-2. **Google Workspace** — Starter plan (~$6/user/mo). Point MX records at Google.
-3. **Stryde email** — at minimum `hello@stryde.run` and `noreply@stryde.run`.
-   Set `noreply` as the sender in Clerk → Email Templates → From address.
-4. **Landing page (optional)** — even a one-pager at `stryde.run`. Cloudflare Pages
-   or Vercel, free tier.
+1. Product → Archive in Xcode
+2. Distribute App → App Store Connect → TestFlight
+3. Add external testers in App Store Connect
 
-**Done when:** you can send/receive email at `hello@stryde.run` and Clerk OTPs arrive
-from `noreply@stryde.run`.
+**Apple Developer account:** enrolled ✅
+**Bundle ID:** `com.runstryde.app` ✅
+**App Store Connect:** "Stryde Running" (App ID: 6766527466) ✅
 
----
-
-## 13. 🎨 Manual route editor [START A NEW CHAT]
-
-**Blocked by:** item 14.
-
-**Goal:** drag waypoints on the map; route recomputes on the walkable graph.
-
-**Done when:** drag a waypoint 200m off the line, route snaps to real streets,
-distance updates.
+**Done when:** you and at least one other person can install the app via TestFlight
+and run a real loop.
 
 ---
 
-## 15. 🏛 Landmarks mode [START A NEW CHAT]
+## E.5. 📦 Business infrastructure [DO IT YOURSELF — any time]
 
-**Goal:** the differentiator. Run past real stuff — Colosseum, Forum, Trevi.
+**Blocked by:** nothing.
 
-**Done when:** a 5km loop in Rome actually hits 3+ famous landmarks.
+1. Register a domain (`stryde.run` or `stryde.app`) via Namecheap or Cloudflare Registrar.
+2. Google Workspace Starter (~$6/mo). Point MX records at Google.
+3. `hello@stryde.run` + `noreply@stryde.run`. Set noreply as sender in Clerk email templates.
+4. Optional: one-page landing site at the domain via Cloudflare Pages or Vercel.
 
----
-
-## 16. 🎨 Custom start location picker [START A NEW CHAT]
-
-**Goal:** build a route starting somewhere other than current GPS location.
-
-**Done when:** sitting at home, pick a spot in Central Park, get a route starting there.
+**Done when:** Clerk OTPs arrive from `noreply@stryde.run`.
 
 ---
 
-## 17. 🎨 Weather / AQI / pollen widget on Home [START A NEW CHAT]
+## F. 🏛 Graph rebuild — elevation + street names [START A NEW CHAT]
 
-**Goal:** ambient data before the run decision.
+**Blocked by:** E (get TestFlight feedback first; this is a multi-day infrastructure change).
 
-**Done when:** Home shows current conditions for the user's location.
+**Why this item exists:** two preferences currently do nothing.
 
----
+- `terrain.hilly` is parsed, weighted, and scored — but the graph has no elevation data,
+  so every route scores as if all terrain is flat. Asking for "something hilly" silently
+  produces the same route as "something flat."
+- Turn-by-turn says "Turn left" with no street name. The graph doesn't store OSM `name`
+  tags. Navigation feels broken even when the directions are correct.
 
-## 18. 🔧 Live navigation / turn-by-turn [START A NEW CHAT]
+Both problems require rebuilding the edge graph. Do them together — same Geofabrik data
+pull, same build-graph.js pass, one deploy.
 
-**Blocked by:** item B (needs confirmed RunView GPS first).
+**What to do:**
+- Pull elevation from SRTM (30m resolution, free, global) or OSM `ele` tags during
+  graph build. Store `elevationGainM` on each directed edge.
+- Pull `name=*` from OSM way tags during graph build. Store on each edge.
+- Update `steps.js` to include street name in turn instructions.
+- Update `weights.js` to use `elevationGainM` for the `terrain.hilly` axis.
+- Rebuild `graphs/manhattan.json` and deploy. Overpass-built graphs rebuild automatically
+  on next request since `overpass.js` calls `buildGraph` fresh.
 
-**Goal:** real navigation during the run — turn card, distance to next maneuver,
-optional audio + haptic cues.
-
-**Done when:** app says "in 100m, turn left onto Oak St" at the right moment.
-
----
-
-## 19. 🏛 Preference learning [START A NEW CHAT]
-
-**Goal:** the moat. Stryde gets sharper the more you use it.
-
-**Done when:** after 10 runs, default route type reflects what you've actually been running.
-
----
-
-## 20. 🏛 Trip mode [START A NEW CHAT]
-
-**Blocked by:** items 15, 19.
-
-**Goal:** "You're in Seoul next week — here's where to run."
-
-**Done when:** enter a trip, app proactively suggests routes there without you asking.
+**Done when:** "Turn left onto Broadway" appears in turn steps, and requesting a hilly
+5km loop in Manhattan produces a meaningfully different route than requesting a flat one.
 
 ---
 
-## 21. 🏛 Optimal route mode [START A NEW CHAT — LAST]
+## G. 🏛 Natural language route requests that actually work [START A NEW CHAT]
 
-**Goal:** AI finds the best run factoring in crowd density, time of day, skill level.
+**Blocked by:** F (needs elevation in the graph for hilly/flat intent to do anything).
+
+**Why this matters:** this is the actual AI differentiator. Right now the `customRequest`
+field sends free text to the backend, Claude wraps it into the route name, and the route
+itself is unchanged. Nobody else is doing real intent-to-graph-weight mapping for running.
+
+"Something hilly in the first half, flat finish so I can sprint home" should produce a
+meaningfully different route than "something flat the whole way." Right now it doesn't.
+
+**What to do:**
+- `parse.js` already extracts a prefs vector from `customRequest` via Claude — this part
+  is built. Verify the extracted prefs are actually being forwarded into `edgePenalty`.
+- Confirm `edgePenalty` in `weights.js` is reading the elevation data added in item F.
+- Add a small set of end-to-end test cases: hilly request vs. flat request at the same
+  start/distance — verify the scored routes are actually different, not just named differently.
+- If extraction is working but routes don't diverge, the gap is in `edgePenalty` knobs —
+  tune alpha/beta until there's a visible difference.
+
+**Done when:** same start point, same distance, "hilly" vs. "flat" request produces
+routes with measurably different elevation profiles.
 
 ---
 
-## 22. 📦 App Store submission [START A NEW CHAT]
+## H. 🔧 Live navigation — turn card + audio cues [START A NEW CHAT]
 
-**Blocked by:** items 9, 14.
+**Blocked by:** B (confirmed GPS), F (street names in graph).
+
+**Goal:** during a run, a persistent turn card shows the next maneuver with distance
+("In 80m, turn left onto Oak St"). Optional audio cue at approach.
+
+Right now RunView shows steps but there's no persistent HUD and no audio. Navigation
+feels passive. This makes it active.
+
+**What to do:**
+- Add a persistent turn card overlay in RunView (distance to next step + instruction).
+- `AVSpeechSynthesizer` for audio: speak the step when 100m out, once.
+- Steps already advance at 30m proximity — the trigger exists, just needs the HUD wired to it.
+
+**Done when:** running a loop, you hear "In 80 meters, turn left onto Main Street" and
+the card updates as you move through steps.
+
+---
+
+## I. 🏛 Post-run feedback + preference learning [START A NEW CHAT]
+
+**Blocked by:** E (need real users generating data first). Don't build this until
+you have at least 20 runs logged by real testers — the reranker needs signal to train on.
+
+**Goal:** Stryde gets better the more you use it. Right now accept/reject from
+RoutePreviewView is the only signal. That's a weak proxy — the user may accept a route
+they end up hating halfway through.
+
+**What to do:**
+- Add a simple prompt to RunSummaryView after a real run: "How was this route?" with
+  three options (Loved it / Fine / Didn't love it) + optional free text. Fire this to
+  a new `POST /run-feedback` endpoint. Log to `routes.jsonl` as `type:"run-feedback"`.
+- Update `train-reranker.js` to weight run-feedback rows more heavily than preview
+  accept/reject rows (run feedback is ground truth; preview feedback is intent).
+- After 10+ labeled runs per user, the reranker weights should reflect what that user
+  actually enjoys running.
+
+**Done when:** after 10 runs with ratings, the routes Stryde suggests measurably differ
+from what a fresh user gets — reflecting the user's actual run history.
+
+---
+
+## J. 📦 App Store submission [START A NEW CHAT]
+
+**Blocked by:** B, C, E, F, G (the generator should actually be good before the
+App Store — TestFlight is for finding out if it is).
 
 **Done when:** Stryde is live in the App Store.
 
@@ -189,6 +218,13 @@ optional audio + haptic cues.
 
 ## Parking lot
 
-- Android release — after iOS is stable
-- Web version — not on the roadmap
-- Preference learning / Redux — only if state management becomes painful
+These are not on the roadmap. They may happen after J if the core generator is proven.
+
+- **Custom start location** — pick a start somewhere other than your GPS. Valid, not urgent.
+- **Landmarks mode** — run past famous places. Good idea, needs the graph + NL foundation from F and G first.
+- **Trip mode** — routes for upcoming travel. Blocked on landmarks being solid.
+- **Manual route editor** — drag waypoints. Power user feature, not the core use case.
+- **Weather / AQI widget** — doesn't make the route better.
+- **Route sharing / community browse** — needs density that doesn't exist yet. Revisit after App Store.
+- **Android** — after iOS is stable.
+- **Web version** — not planned.
