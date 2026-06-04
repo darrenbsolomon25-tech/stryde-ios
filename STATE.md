@@ -1,6 +1,6 @@
 # Stryde iOS — current state
 
-Last updated: 2026-05-24 (item A done; RunView improvements; previousRequestId wired)
+Last updated: 2026-06-04 (Railway restored; backend confirmed live; iOS build confirmed clean)
 
 Source of truth for what the app **actually does right now**, not what it should do.
 If you change something, update the relevant section in the same sitting.
@@ -151,6 +151,9 @@ Verify the 2026-05-15 backend deploy is live on Railway before relying on this.
 - TestFlight upload + first beta testers
 
 ## Backend state
+
+Railway was offline 2026-05-24 – 2026-06-04 (trial expired). Restored 2026-06-04.
+Backend confirmed live: `GET /health` → `{"status":"ok"}`.
 
 Committed `d441884`, deployed to Railway 2026-05-12. Three root causes of bad
 route quality fixed in a single deploy:
