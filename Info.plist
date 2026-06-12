@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+	  Base Info.plist. Lives at the project root (SRCROOT), deliberately OUTSIDE the
+	  synchronized "Stryde IOS" source folder so Xcode 16's file-system-synchronized
+	  group does not auto-add it as a bundle resource (which collides with its use as
+	  the Info.plist source: "Multiple commands produce Info.plist").
+
+	  The project still uses GENERATE_INFOPLIST_FILE = YES, so every INFOPLIST_KEY_*
+	  build setting (usage strings, scene manifest, orientations) is merged on top of
+	  this file at build time. This file only carries keys with no INFOPLIST_KEY_
+	  equivalent — UIBackgroundModes is one Xcode silently drops as a build setting,
+	  so it must live here.
+	-->
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>location</string>
+	</array>
+</dict>
+</plist>

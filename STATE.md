@@ -1,6 +1,6 @@
 # Stryde iOS — current state
 
-Last updated: 2026-06-04 (Railway restored; backend confirmed live; iOS build confirmed clean)
+Last updated: 2026-06-10 (Overpass 406 fixed + deployed; generateRoute timeout 20s→60s; route generation confirmed on a physical device; Item C "Back to Home" pop-to-root DONE — confirmed in the simulator)
 
 Source of truth for what the app **actually does right now**, not what it should do.
 If you change something, update the relevant section in the same sitting.
@@ -111,7 +111,32 @@ Shared `jsonRequest` helper: 20s timeout, surfaces backend `reason`/`error`.
 
 ## What's broken / half-wired
 
-- **RunView GPS tracking not confirmed on-device** — code is substantially
+- **[RESOLVED 2026-06-10] Route generation was 502ing everywhere outside
+  Manhattan.** Overpass started rejecting no-`User-Agent` requests (HTTP 406),
+  killing every cold-tile graph fetch. Fixed in the backend (`overpass.js` now
+  sends a User-Agent; deployed to Railway, commit `6247b9e`). Confirmed end-to-end:
+  a real route generated on a physical iPhone in Englewood NJ. Paired iOS change:
+  `generateRoute` timeout raised 20s→60s (`APIService.swift` `jsonFetch` gained a
+  `timeout` param), since a cold Overpass fetch runs ~22–44s and the old 20s
+  ceiling cut it off before the backend could answer.
+- **[RESOLVED 2026-06-11] Background location now enabled for the run path.**
+  Previously `project.pbxproj` declared only
+  `INFOPLIST_KEY_NSLocationWhenInUseUsageDescription`, so
+  `CLLocationUpdate.liveUpdates(.fitness)` stopped the moment the screen locked or
+  the app backgrounded, meaning a real run with the phone pocketed would record
+  nothing. Two-part fix: (1) project now declares
+  `INFOPLIST_KEY_UIBackgroundModes = location` plus
+  `INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription` in both Debug and
+  Release configs; (2) `RunView` opens a `CLBackgroundActivitySession` in
+  `startTracking()` and invalidates it in `stopTracking()`, which is what the
+  streamlined `liveUpdates` API requires to keep delivering fixes while
+  backgrounded. The session is held on `RunRef` so it lives for the whole run.
+  Still needs the actual outdoor run to confirm the stream genuinely survives a
+  screen lock on-device (part of the open Item B test below).
+- **RunView GPS tracking still not confirmed on-device** — route generation →
+  preview now works on a real device, but the live-run path (Start Run → GPS
+  tracking → summary) has still never been validated on an actual outdoor run.
+  This remains the open Item B test. Code is substantially
   improved (EMA smoothing, segment projection, fitness GPS mode, animated camera,
   exact polyline split) but a real outdoor run test is still needed to confirm
   step advancement, distance accumulation, and camera follow mode work correctly.
@@ -144,10 +169,38 @@ passes `route.requestId` on every Regenerate tap. Backend pops the next cached
 survivor (~500ms) instead of running the full pipeline (~2-3s).
 Verify the 2026-05-15 backend deploy is live on Railway before relying on this.
 
+## "Back to Home" pop-to-root (Item C — DONE 2026-06-10)
+
+The run-summary "Back to Home" button now collapses the whole NavigationStack to
+HomeView in one tap, instead of `dismiss()` popping a single level back to RunView.
+
+Mechanism (NOT a NavigationPath — the whole app is `isPresented`-bool navigation):
+the two run-flow *entry* pushes were lifted into `AppState` as `showRoutePreview`
+(Quick Run) and `showBuildRun` (Build My Run). Setting a root push flag back to
+false removes that screen and every screen pushed above it, so the stack collapses
+to root. `AppState.popToHome()` clears both; `RunSummaryView` calls it after a real
+run (and still `dismiss()`es one level when opened read-only from Run History).
+
+- `AppState.swift` — added `showRoutePreview`, `showBuildRun`, `popToHome()`.
+- `HomeView.swift` — Quick Run push now binds `Bindable(appState).showRoutePreview`;
+  "Build My Run" converted from a `NavigationLink` to a Button + a
+  `navigationDestination(isPresented: Bindable(appState).showBuildRun)` (had to be
+  flag-driven so popToHome can collapse it too).
+- `RunSummaryView.swift` — button branches on `fromHistory`: post-run → popToHome,
+  history → dismiss.
+
+NOTE on why not a real NavigationPath: every push in the app is a separate
+`isPresented` bool (+ NavigationLinks). A NavigationPath only controls screens
+appended to it, and `CLLocationCoordinate2D` isn't Hashable, so the "proper" path
+refactor would mean converting ~8 push sites across 6 files + adding Hashable
+conformances. Deferred as out of scope for this UI fix.
+
+**Confirmed in the simulator (2026-06-10):** Quick Run → Start Run → End Run →
+summary → "Back to Home" lands directly on HomeView with no intermediate screens,
+on both the Quick Run and Build My Run flows. Item C done.
+
 ## Not yet built (iOS-specific)
 
-- "Back to Home" UX after a run (currently requires tapping back 2-3 times through
-  the NavigationStack — need a dedicated "Done" button that pops to root)
 - TestFlight upload + first beta testers
 
 ## Backend state

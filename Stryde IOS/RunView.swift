@@ -14,6 +14,10 @@ private final class RunRef {
     var smoothLat: Double = 0
     var smoothLng: Double = 0
     var isFirstLoc: Bool = true
+    // Keeps location streaming while the app is backgrounded (screen locked /
+    // phone pocketed). Held here so it lives for the whole run and can be
+    // invalidated when tracking stops. Requires the `location` UIBackgroundMode.
+    var backgroundSession: CLBackgroundActivitySession?
     init(startCoord: CLLocationCoordinate2D) { lastCoord = startCoord }
 }
 
@@ -256,6 +260,11 @@ struct RunView: View {
 
     private func startTracking() {
         startTimer()
+        // Open a background activity session so CLLocationUpdate.liveUpdates keeps
+        // delivering fixes after the screen locks or the app backgrounds. Without
+        // this (and the `location` UIBackgroundMode declared in the project) the
+        // stream pauses the moment the runner pockets the phone, flat-lining the run.
+        ref.backgroundSession = CLBackgroundActivitySession()
         locationTask = Task {
             do {
                 let updates = CLLocationUpdate.liveUpdates(.fitness)
@@ -286,6 +295,10 @@ struct RunView: View {
     private func stopTracking() {
         timerTask?.cancel()
         locationTask?.cancel()
+        // End the background session so iOS stops the run's background-location
+        // activity (and drops the blue status-bar indicator) once the run is over.
+        ref.backgroundSession?.invalidate()
+        ref.backgroundSession = nil
     }
 
     @MainActor

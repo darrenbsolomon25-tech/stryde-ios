@@ -39,7 +39,18 @@ of swallowing them silently. Matches the HomeView pattern exactly.
 **Goal:** RunView code is written but has never been confirmed working on a real device
 with real GPS movement. Needs an actual outdoor run test.
 
+**Prerequisite cleared 2026-06-11:** background-location is now wired. The project
+declares `UIBackgroundModes = location` (via the root `Info.plist`, since Xcode silently
+drops it when set as a build setting) and `RunView` opens a `CLBackgroundActivitySession`
+in `startTracking()` / invalidates it in `stopTracking()` — what the streamlined
+`CLLocationUpdate.liveUpdates` API needs to keep streaming while backgrounded. Without
+this, the test would have flat-lined the instant the phone was pocketed. Build verified;
+`UIBackgroundModes = ["location"]` confirmed in the compiled Info.plist. See `STATE.md`.
+
 **What to verify:**
+- **Lock the phone mid-run and keep moving** — distance must still accumulate after the
+  screen locks. This is the whole point of the prerequisite above; if it stops, the
+  background session or capability has regressed.
 - Distance accumulates correctly via `haversineDistanceMiles` as the runner moves
 - Step advancement fires at the right 30m threshold
 - Camera follow mode (pitch 65, behind-runner) stays locked on the runner
@@ -52,18 +63,16 @@ with real GPS movement. Needs an actual outdoor run test.
 
 ---
 
-## C. 🎨 "Back to Home" UX after a run [START A NEW CHAT]
+## C. ✅ "Back to Home" UX after a run — DONE 2026-06-10
 
-**Blocked by:** B.
-
-**Goal:** after finishing a run and viewing the summary, the user currently has to
-tap "back" 2-3 times through the NavigationStack to get home. One "Done" button
-should pop the entire stack to root.
-
-**Touches:** `Stryde IOS/RunSummaryView.swift`, possibly `HomeView.swift`
-
-**Done when:** tapping "Done" on RunSummaryView lands you directly on HomeView
-with no intermediate screens.
+Run-summary "Back to Home" now collapses the whole NavigationStack to HomeView in
+one tap. Implemented without a NavigationPath (the app is all `isPresented`-bool
+navigation): the two run-flow entry pushes were lifted into `AppState`
+(`showRoutePreview`, `showBuildRun`) and `AppState.popToHome()` clears them, which
+removes every screen stacked above Home. Touched `AppState.swift`, `HomeView.swift`
+(Build My Run converted from a `NavigationLink` to a flag-driven Button), and
+`RunSummaryView.swift`. Confirmed in the simulator on both the Quick Run and
+Build My Run flows. Full detail in `ROADMAP_COMPLETED.md`.
 
 ---
 
@@ -181,6 +190,42 @@ feels passive. This makes it active.
 
 **Done when:** running a loop, you hear "In 80 meters, turn left onto Main Street" and
 the card updates as you move through steps.
+
+---
+
+## H.5. 🎨 Waze-grade run UI — smooth marker + route consumed behind you [START A NEW CHAT]
+
+**Blocked by:** B (confirm GPS tracking is actually correct on a real run before
+polishing how it looks — smoothness on top of wrong tracking is wasted work).
+
+**Goal:** the live run should feel like Waze. The runner marker glides continuously
+along the route instead of hopping once per GPS fix, and the line behind the runner
+is consumed — it fades / disappears as they pass, leaving only the road ahead.
+
+**What already exists in RunView (don't rebuild it):** EMA smoothing on incoming GPS
+(alpha 0.3), orthogonal segment projection so the chevron rides the polyline, an exact
+completed/remaining split at the projected runner position, and an animated follow
+camera. Two gaps remain: the marker still effectively snaps to each ~1 Hz fix, and the
+passed segment just turns grey (#666666) instead of fading away.
+
+**What to do:**
+- **Interpolate the marker between fixes.** GPS arrives ~once per second; drive the
+  chevron with a display-linked tween (`TimelineView(.animation)` or a `CADisplayLink`)
+  that animates `currentCoord` along the projected route toward the latest fix, so it
+  moves at 60 fps instead of jumping. This is the single biggest perceived-smoothness
+  win and the core of the Waze feel.
+- **Consume the route behind the runner.** Instead of greying the completed segment,
+  trim it out of the drawn polyline (or fade it with a gradient stroke) so only the path
+  ahead renders. Keep the exact split at the projected runner position.
+- **Smooth the heading.** Tween `heading` so the chevron rotation and the follow camera
+  don't snap on course changes.
+
+**Test it without going outside:** Xcode can play back a moving location — run on a
+simulator, then Debug bar location icon → **City Run** (or load a custom GPX of a loop).
+That feeds continuous movement so you can actually see the smoothing.
+
+**Done when:** with a simulated moving route, the marker glides with no visible
+once-per-second hops and the line disappears behind the runner as they move.
 
 ---
 
