@@ -15,7 +15,9 @@ struct HomeView: View {
     // Holds the route that was just generated — set right before we navigate.
     @State private var generatedRoute: GeneratedRoute? = nil
     @State private var routeSnappedCoord: CLLocationCoordinate2D? = nil
-    @State private var navigateToPreview = false
+    // The push flag now lives in AppState (appState.showRoutePreview) so the
+    // post-run summary can clear it and collapse the stack back here. The route
+    // *data* it shows stays in this view's @State above.
 
     // Stored for the "Try from there" flow when backend returns a suggestedStart.
     @State private var pendingSuggestion: SuggestedStart? = nil
@@ -54,8 +56,8 @@ struct HomeView: View {
                     .transition(.move(edge: .leading))
             }
         }
-        // navigationDestination fires as soon as navigateToPreview flips to true.
-        .navigationDestination(isPresented: $navigateToPreview) {
+        // navigationDestination fires as soon as showRoutePreview flips to true.
+        .navigationDestination(isPresented: Bindable(appState).showRoutePreview) {
             if let route = generatedRoute {
                 RoutePreviewView(
                     route: route,
@@ -78,6 +80,13 @@ struct HomeView: View {
         .navigationDestination(isPresented: Bindable(appState).showSettings) {
             SettingsView()
         }
+        // Build My Run is now flag-driven (was a NavigationLink) so popToHome()
+        // can collapse it too. The route data lives in BuildRunView's own @State.
+        .navigationDestination(isPresented: Bindable(appState).showBuildRun) {
+            if let coord = coordinate {
+                BuildRunView(profile: appState.userProfile, coordinate: coord)
+            }
+        }
         .alert("Better start nearby", isPresented: $showSuggestionAlert, presenting: pendingSuggestion) { suggestion in
             Button("Cancel", role: .cancel) {}
             Button("Try from there") {
@@ -97,7 +106,7 @@ struct HomeView: View {
         }
         .alert("Your loop starts nearby", isPresented: $showSnapAlert) {
             Button("Cancel", role: .cancel) {}
-            Button("Walk there →") { navigateToPreview = true }
+            Button("Walk there →") { appState.showRoutePreview = true }
         } message: {
             Text(snapMessage)
         }
@@ -242,13 +251,8 @@ struct HomeView: View {
                 }
                 .disabled(coordinate == nil)
 
-                NavigationLink {
-                    if let coord = coordinate {
-                        BuildRunView(
-                            profile: appState.userProfile,
-                            coordinate: coord
-                        )
-                    }
+                Button {
+                    if coordinate != nil { appState.showBuildRun = true }
                 } label: {
                     Text("Build My Run")
                         .font(.system(size: 16, weight: .bold))
@@ -303,7 +307,7 @@ struct HomeView: View {
                     quickRunActive = false
                     selectedDistance = nil
                     customDistance = ""
-                    navigateToPreview = true
+                    appState.showRoutePreview = true
                 }
             }
         } catch {
@@ -331,7 +335,7 @@ struct HomeView: View {
                 quickRunActive = false
                 selectedDistance = nil
                 customDistance = ""
-                navigateToPreview = true
+                appState.showRoutePreview = true
             }
         } catch {
             print("[HomeView] suggestion retry failed: \(error.localizedDescription)")

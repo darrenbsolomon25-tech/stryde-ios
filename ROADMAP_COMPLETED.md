@@ -4,6 +4,38 @@ Items moved here once done. Full detail preserved for reference.
 
 ---
 
+## C. 🎨 "Back to Home" UX after a run [DONE 2026-06-10]
+
+After a run, the summary's "Back to Home" button called `dismiss()`, which pops a
+single level — landing the user on `RunView` and forcing 2-3 manual back-taps to
+reach Home. It now collapses the entire NavigationStack to `HomeView` in one tap.
+
+**Why not a NavigationPath:** the app has no `NavigationPath` — every screen is
+pushed via a separate `.navigationDestination(isPresented: $bool)` (plus a couple of
+`NavigationLink`s). A `NavigationPath` only controls screens appended to it, and
+`CLLocationCoordinate2D` isn't `Hashable`, so the "proper" path refactor would mean
+converting ~8 push sites across 6 files and adding Hashable conformances — a full-app
+navigation rewrite for a one-button fix. Deferred.
+
+**Mechanism:** the two run-flow *entry* pushes were lifted into `AppState` as
+`showRoutePreview` (Quick Run → RoutePreview) and `showBuildRun` (Build My Run →
+BuildRun). Setting a root push flag back to false removes that screen and every
+screen pushed above it, so the stack collapses to root. `AppState.popToHome()`
+clears both flags.
+
+**Changes:**
+- `AppState.swift` — added `showRoutePreview`, `showBuildRun`, `popToHome()`.
+- `HomeView.swift` — Quick Run push binds `Bindable(appState).showRoutePreview`;
+  "Build My Run" converted from a `NavigationLink` to a Button + a
+  `navigationDestination(isPresented: Bindable(appState).showBuildRun)`, so
+  `popToHome()` can collapse that flow too.
+- `RunSummaryView.swift` — "Back to Home" branches on `fromHistory`: post-run calls
+  `popToHome()`; read-only-from-history still `dismiss()`es one level back to the list.
+
+Confirmed in the simulator on both the Quick Run and Build My Run flows.
+
+---
+
 ## A. 🎨 Error UX in BuildRunView [DONE 2026-05-24]
 
 `errorMessage: String?` state added to `BuildRunView`. A `.alert("Route Error", ...)`

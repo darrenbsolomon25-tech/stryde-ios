@@ -21,12 +21,36 @@ class AppState {
     var showRunHistory = false
     var showSettings = false
 
+    // Run-flow entry flags. These live here — not as HomeView @State — so that
+    // RunSummaryView, three or four screens deep, can flip them back to false and
+    // collapse the whole stack to Home in one tap. HomeView drives its two forward
+    // pushes off these: Quick Run (→ RoutePreview) and Build My Run (→ BuildRun).
+    var showRoutePreview = false
+    var showBuildRun = false
+
     // Local copies of the user's data — populated during boot
     var userProfile: UserProfile? = nil
     var runs: [Run] = []
 
     // Local run history (miles + pace shape, not the backend km shape)
     var localRuns: [LocalRun] = []
+
+    // MARK: - Navigation
+
+    /// Pops the entire run flow back to Home in one tap.
+    ///
+    /// Both entry paths hang off one of the two flags below at the *root* of the
+    /// stack:
+    ///   Quick Run:    Home → RoutePreview → Run → Summary   (root flag: showRoutePreview)
+    ///   Build My Run: Home → BuildRun → RoutePreview → Run → Summary (root flag: showBuildRun)
+    ///
+    /// Setting a root flag back to false removes that screen *and every screen
+    /// pushed above it*, so the stack collapses straight to HomeView. Only one
+    /// flag is ever true at a time, so clearing both is always safe.
+    func popToHome() {
+        showRoutePreview = false
+        showBuildRun = false
+    }
 
     // MARK: - Boot sequence (mirrors AppNavigator.js steps 3-8)
 

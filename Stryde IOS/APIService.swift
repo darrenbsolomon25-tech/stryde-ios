@@ -101,13 +101,14 @@ class APIService {
     private func jsonFetch<T: Decodable>(
         path: String,
         method: String = "GET",
-        body: [String: Any]? = nil
+        body: [String: Any]? = nil,
+        timeout: TimeInterval = 20
     ) async throws -> T {
         guard let url = URL(string: baseURL + path) else {
             throw URLError(.badURL)
         }
 
-        var request = URLRequest(url: url, timeoutInterval: 20)
+        var request = URLRequest(url: url, timeoutInterval: timeout)
         request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
@@ -250,7 +251,10 @@ class APIService {
             var name: String?
         }
 
-        let raw: RawResponse = try await jsonFetch(path: "/generate-route", method: "POST", body: body)
+        // Route generation can trigger a cold Overpass graph fetch on the backend
+        // (~22-44s for a new area). The default 20s timeout would cut that off
+        // before the backend can answer, so give this endpoint a 60s ceiling.
+        let raw: RawResponse = try await jsonFetch(path: "/generate-route", method: "POST", body: body, timeout: 60)
 
         if let suggested = raw.suggestedStart {
             return .suggestedStart(suggested)

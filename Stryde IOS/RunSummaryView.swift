@@ -37,10 +37,18 @@ struct RunSummaryView: View {
 
             Spacer()
 
-            // "Back to Home" pops this view. RunView then shows a back button
-            // since its nav bar is re-enabled after the run ends.
+            // After a finished run this collapses the entire stack to HomeView in
+            // one tap (AppState.popToHome flips the root push flag, which removes
+            // every screen above Home). When this screen is opened read-only from
+            // Run History, the stack is Home → History → Summary instead, so we
+            // just dismiss one level back to the history list — the expected
+            // behavior when browsing past runs.
             Button {
-                dismiss()
+                if fromHistory {
+                    dismiss()
+                } else {
+                    AppState.shared.popToHome()
+                }
             } label: {
                 Text("Back to Home")
                     .font(.system(size: 16, weight: .bold))
