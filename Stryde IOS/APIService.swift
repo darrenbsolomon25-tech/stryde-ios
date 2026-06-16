@@ -212,6 +212,17 @@ class APIService {
         routeType: String = "loop",
         previousRequestId: String? = nil
     ) async throws -> RouteResult {
+        #if DEBUG
+        // DEBUG auth-bypass: there's no Clerk token in bypass mode, so the real
+        // /generate-route call would 401. Return a canned loop instead so the run
+        // flow (Preview → RunView → Summary → History) is reachable offline.
+        if AppState.authBypassEnabled {
+            return .route(Self.cannedRoute(
+                latitude: latitude, longitude: longitude,
+                distanceMiles: distanceMiles, profile: profile))
+        }
+        #endif
+
         let distanceKm = distanceMiles * 1.60934
 
         var profileBody: [String: Any]? = nil
@@ -290,6 +301,64 @@ class APIService {
         )
         return .route(route)
     }
+
+    #if DEBUG
+    /// A fake loop used only when the DEBUG auth bypass is on. Builds a circular
+    /// loop that *starts and ends exactly at the current GPS coords*, so HomeView's
+    /// snap-distance check sees waypoints[0] == start (distance 0, no "walk there"
+    /// alert) and the loop closes cleanly back home. No network, no token needed.
+    static func cannedRoute(
+        latitude: Double,
+        longitude: Double,
+        distanceMiles: Double,
+        profile: UserProfile?
+    ) -> GeneratedRoute {
+        let distanceMeters = distanceMiles * 1609.34
+        let radiusM = distanceMeters / (2 * Double.pi)         // perimeter ≈ requested distance
+        let metersPerDegLat = 111_111.0
+        let metersPerDegLng = 111_111.0 * cos(latitude * Double.pi / 180)
+        // Put the circle's centre due north of the start so the start sits on it.
+        let centerLat = latitude + radiusM / metersPerDegLat
+        let centerLng = longitude
+
+        let pointCount = 36
+        var waypoints: [Waypoint] = (0...pointCount).map { i in
+            // θ sweeps a full turn starting at the bottom of the circle (= the start).
+            let theta = (-Double.pi / 2) + (2 * Double.pi * Double(i) / Double(pointCount))
+            return Waypoint(
+                latitude: centerLat + (radiusM * sin(theta)) / metersPerDegLat,
+                longitude: centerLng + (radiusM * cos(theta)) / metersPerDegLng
+            )
+        }
+        // Pin the first/last points exactly to the start so snap distance is 0.
+        let start = Waypoint(latitude: latitude, longitude: longitude)
+        waypoints[0] = start
+        waypoints[waypoints.count - 1] = start
+
+        // A handful of steps along the loop so RunView's turn-by-turn has something
+        // to advance through.
+        let stepIdx = [0, pointCount / 4, pointCount / 2, (3 * pointCount) / 4, pointCount]
+        let instructions = ["Head out along the loop", "Turn right", "Turn right",
+                            "Turn right", "Arrive back at start"]
+        let steps = zip(stepIdx, instructions).map { idx, text in
+            Step(instruction: text, type: "turn", modifier: "right",
+                 distanceMeters: distanceMeters / 4, location: waypoints[idx], name: nil)
+        }
+
+        let fitness = profile?.fitnessLevel ?? "Intermediate"
+        let pace = fitness == "Advanced" ? 8.0 : fitness == "Intermediate" ? 10.0 : 13.0
+        return GeneratedRoute(
+            routeName: "Debug Test Loop",
+            terrainDescription: "Canned \(String(format: "%.1f", distanceMiles))-mile loop (offline bypass).",
+            totalDistance: "\(String(format: "%.1f", distanceMiles)) miles",
+            estimatedTime: "\(Int(distanceMiles * pace)) minutes",
+            waypoints: waypoints,
+            steps: steps,
+            terrain: profile?.terrain ?? [],
+            requestId: nil
+        )
+    }
+    #endif
 
     func deleteAccount() async throws {
         let _: [String: String] = try await jsonFetch(path: "/users/me", method: "DELETE")

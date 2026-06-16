@@ -9,6 +9,7 @@ struct RoutePreviewView: View {
 
     @State private var regenerating = false
     @State private var navigateToRun = false
+    @State private var errorMessage: String? = nil
 
     // Fit the entire route's polyline inside the map frame.
     // This mirrors the `region` useMemo in RoutePreviewScreen.js.
@@ -148,6 +149,14 @@ struct RoutePreviewView: View {
         .navigationTitle("Route Preview")
         .navigationBarTitleDisplayMode(.inline)
         .toolbarColorScheme(.dark, for: .navigationBar)
+        .alert("Couldn't build a new route", isPresented: Binding(
+            get: { errorMessage != nil },
+            set: { if !$0 { errorMessage = nil } }
+        )) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(errorMessage ?? "")
+        }
         .navigationDestination(isPresented: $navigateToRun) {
             RunView(route: route, startLocation: location)
         }
@@ -174,6 +183,7 @@ struct RoutePreviewView: View {
                 route = newRoute
             }
         } catch {
+            errorMessage = error.localizedDescription
             print("[RoutePreviewView] regenerate failed: \(error.localizedDescription)")
         }
     }

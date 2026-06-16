@@ -65,6 +65,14 @@ Full service/account/key map: `STACK.md`. API contract: `contract.md`.
 See `STATE.md` (this repo) and `stryde-route-service/STATE.md` (backend) for what is
 actually built and what is broken. Don't trust memory — read the files.
 
+## Route Generation
+
+When touching route generation (`overpass.js` or the v2 engine in `stryde-route-service`), watch for these recurring failure modes:
+- Overpass 406 errors — always send a `User-Agent` header
+- Terrain/surface scoring bugs — verify the prefs vector is parsed and applied correctly
+- Loop algorithm correctness — routes must close back to the start point
+- Empty navigation steps — validate the response before returning
+
 ## Hard rules
 
 1. **Explain every piece of code you share.** The user is learning Swift — don't just
@@ -72,3 +80,10 @@ actually built and what is broken. Don't trust memory — read the files.
 2. **Edit files directly.** Use Edit/Write tools. Paste snippets only when explicitly asked.
 3. **One roadmap item = one fresh chat.** Don't start the next numbered item in the same
    conversation, even if asked.
+4. **Read state files before starting.** Always read `STATE.md` and `ROADMAP.md` at the
+   start of a session before touching any code.
+5. **Documentation on close.** When a roadmap item is done, update `STATE.md`, `ROADMAP.md`,
+   and `STACK.md` as needed, then commit in the same session.
+6. **Build & verify.** After editing SwiftUI views or navigation logic, check for compile
+   errors (e.g. `MapContent` conformance, `@Observable` misuse) and confirm existing
+   navigation flows still work before declaring done.

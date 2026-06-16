@@ -1,6 +1,7 @@
 import SwiftUI
 import MapKit
 import CoreLocation
+import QuartzCore  // CACurrentMediaTime() — monotonic clock for the frame loop
 
 // Non-observable class holds mutable tracking state that shouldn't trigger
 // SwiftUI re-renders on every GPS tick. Only the display values below are @State.
@@ -18,7 +19,25 @@ private final class RunRef {
     // phone pocketed). Held here so it lives for the whole run and can be
     // invalidated when tracking stops. Requires the `location` UIBackgroundMode.
     var backgroundSession: CLBackgroundActivitySession?
-    init(startCoord: CLLocationCoordinate2D) { lastCoord = startCoord }
+
+    // Smooth-marker interpolation (Waze-style 60fps glide). GPS fixes arrive ~1Hz;
+    // rather than snap the chevron to each fix, we tween it from where it is shown
+    // now (`animFrom`) toward the newest projected position (`animTo`) over
+    // `animDuration` seconds starting at `animStart`. A frame-rate loop reads these
+    // to place the marker in between every frame. Heading tweens the same way.
+    var animFrom: CLLocationCoordinate2D
+    var animTo: CLLocationCoordinate2D
+    var animFromHeading: Double = 0
+    var animToHeading: Double = 0
+    var animStart: CFTimeInterval = 0
+    var animDuration: Double = 1.0
+    var lastFixTime: CFTimeInterval = 0
+
+    init(startCoord: CLLocationCoordinate2D) {
+        lastCoord = startCoord
+        animFrom = startCoord
+        animTo = startCoord
+    }
 }
 
 // A triangular chevron marker drawn in SwiftUI — same concept as the
@@ -74,6 +93,7 @@ struct RunView: View {
     @State private var runData: LocalRun? = nil
     @State private var timerTask: Task<Void, Never>? = nil
     @State private var locationTask: Task<Void, Never>? = nil
+    @State private var animTask: Task<Void, Never>? = nil  // ~60fps marker glide
 
     init(route: GeneratedRoute, startLocation: CLLocationCoordinate2D) {
         self.route = route
@@ -94,14 +114,9 @@ struct RunView: View {
 
     // Computed here (not inside Map { }) because @MapContentBuilder only accepts
     // MapContent-returning expressions — let bindings produce () and won't compile.
-    private var completedCoords: [CLLocationCoordinate2D] {
-        guard passedWaypointIndex > 0 else { return [] }
-        var pts = Array(route.waypoints[0...passedWaypointIndex])
-            .map { CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude) }
-        pts.append(currentCoord)
-        return pts
-    }
-
+    // Starts at the live (interpolated) runner position and runs to the finish, so
+    // as `currentCoord` advances each frame the line shortens from behind — the
+    // traveled path is consumed rather than left as a trail.
     private var remainingCoords: [CLLocationCoordinate2D] {
         let tail: [CLLocationCoordinate2D] = passedWaypointIndex + 1 < route.waypoints.count
             ? Array(route.waypoints[(passedWaypointIndex + 1)...])
@@ -117,12 +132,9 @@ struct RunView: View {
             }
 
             Map(position: $cameraPosition) {
-                // Completed segment: start → projected runner position (exact split)
-                if completedCoords.count > 1 {
-                    MapPolyline(coordinates: completedCoords)
-                        .stroke(Color(hex: "#666666"), lineWidth: 4)
-                }
-                // Remaining segment: projected runner position → end (exact split)
+                // Route ahead only — the path behind the runner is consumed. One
+                // polyline from the live runner position to the finish; it visibly
+                // shortens from behind as they move, instead of leaving a grey trail.
                 if remainingCoords.count > 1 {
                     MapPolyline(coordinates: remainingCoords)
                         .stroke(Color(hex: "#FF6B35"), lineWidth: 6)
@@ -145,8 +157,9 @@ struct RunView: View {
             .padding(.vertical, 8)
             .overlay(alignment: .topTrailing) {
                 Button {
+                    // Just flip the mode — the per-frame render loop repositions the
+                    // camera for the new mode on the next frame (~16ms, effectively instant).
                     cameraMode = cameraMode == "follow" ? "overhead" : "follow"
-                    updateCamera(coord: currentCoord, hdg: ref.lastHeading)
                 } label: {
                     Text(cameraMode == "follow" ? "Overhead" : "Follow")
                         .font(.system(size: 13, weight: .bold))
@@ -265,6 +278,7 @@ struct RunView: View {
         // this (and the `location` UIBackgroundMode declared in the project) the
         // stream pauses the moment the runner pockets the phone, flat-lining the run.
         ref.backgroundSession = CLBackgroundActivitySession()
+        startMarkerAnimation()
         locationTask = Task {
             do {
                 let updates = CLLocationUpdate.liveUpdates(.fitness)
@@ -295,6 +309,7 @@ struct RunView: View {
     private func stopTracking() {
         timerTask?.cancel()
         locationTask?.cancel()
+        animTask?.cancel()
         // End the background session so iOS stops the run's background-location
         // activity (and drops the blue status-bar indicator) once the run is over.
         ref.backgroundSession?.invalidate()
@@ -323,7 +338,8 @@ struct RunView: View {
 
         ref.lastCoord = coord  // raw GPS kept for distance accumulation
         ref.lastHeading = newHeading
-        heading = newHeading
+        // Note: `heading` (the displayed value) is NOT set here — the render loop
+        // tweens it from its current value toward `newHeading` so turns sweep smoothly.
 
         // Exponential moving average smooths GPS noise so the marker doesn't
         // jitter on every tick. Alpha 0.3 keeps motion responsive at running
@@ -347,29 +363,88 @@ struct RunView: View {
             ref.passedWaypointIndex = snapIdx
             passedWaypointIndex = snapIdx
         }
-        currentCoord = snapped
 
-        updateCamera(coord: snapped, hdg: newHeading)
+        // Re-target the marker tween instead of snapping currentCoord to the fix.
+        // Glide from where the marker is shown right now toward `snapped` over
+        // roughly the gap since the last fix; the render loop fills the in-between
+        // frames. Clamp the duration so a long gap (e.g. the app was backgrounded)
+        // doesn't make the marker crawl, and a burst of fixes doesn't teleport it.
+        let now = CACurrentMediaTime()
+        let gap = ref.lastFixTime > 0 ? now - ref.lastFixTime : 1.0
+        ref.lastFixTime = now
+        ref.animFrom = currentCoord
+        ref.animTo = snapped
+        ref.animFromHeading = heading
+        ref.animToHeading = newHeading
+        ref.animStart = now
+        ref.animDuration = min(max(gap, 0.3), 1.5)
+
         updateStep(coord: coord)
     }
 
-    private func updateCamera(coord: CLLocationCoordinate2D, hdg: Double) {
-        if cameraMode == "follow" {
-            // Offset the camera center ~60m ahead of the runner so they appear
-            // near the bottom of the screen — same Waze-style effect as the RN app.
-            let ahead = offsetAhead(lat: coord.latitude, lng: coord.longitude, bearing: hdg, meters: 60)
-            withAnimation(.linear(duration: 0.8)) {
-                cameraPosition = .camera(MapCamera(
-                    centerCoordinate: ahead, distance: 200, heading: hdg, pitch: 65
-                ))
-            }
-        } else {
-            withAnimation(.linear(duration: 0.5)) {
-                cameraPosition = .camera(MapCamera(
-                    centerCoordinate: coord, distance: 600, heading: 0, pitch: 0
-                ))
+    // Frame-rate marker glide. GPS fixes land ~1Hz; this loop runs ~60fps and
+    // interpolates the chevron (and the camera that follows it) between fixes so
+    // motion is continuous instead of a once-per-second hop. A Task.sleep loop
+    // mirrors the existing startTimer() pattern — simpler than wiring CADisplayLink
+    // into SwiftUI, and the small timing drift is invisible at this scale.
+    private func startMarkerAnimation() {
+        animTask?.cancel()
+        animTask = Task {
+            while !Task.isCancelled {
+                await MainActor.run { renderFrame() }
+                try? await Task.sleep(for: .milliseconds(16))  // ~60fps
             }
         }
+    }
+
+    @MainActor
+    private func renderFrame() {
+        // Progress through the current tween: 0 right after a fix, 1 once the tween
+        // duration has elapsed. Clamped, so between fixes the marker rests exactly
+        // on the target rather than overshooting past it.
+        let elapsed = CACurrentMediaTime() - ref.animStart
+        let t = ref.animDuration > 0 ? min(max(elapsed / ref.animDuration, 0), 1) : 1
+        currentCoord = lerpCoord(ref.animFrom, ref.animTo, t)
+        heading = lerpHeading(ref.animFromHeading, ref.animToHeading, t)
+        renderCamera(coord: currentCoord, hdg: heading)
+    }
+
+    // Driven every frame off the interpolated marker so the map stays locked to the
+    // runner. Set directly with no withAnimation: we're already updating at frame
+    // rate, so wrapping each frame in its own animation would fight itself.
+    @MainActor
+    private func renderCamera(coord: CLLocationCoordinate2D, hdg: Double) {
+        if cameraMode == "follow" {
+            // Center ~60m ahead of the runner so they sit near the bottom of the
+            // screen with the road ahead filling the view — the Waze framing.
+            let ahead = offsetAhead(lat: coord.latitude, lng: coord.longitude, bearing: hdg, meters: 60)
+            cameraPosition = .camera(MapCamera(
+                centerCoordinate: ahead, distance: 200, heading: hdg, pitch: 65
+            ))
+        } else {
+            cameraPosition = .camera(MapCamera(
+                centerCoordinate: coord, distance: 600, heading: 0, pitch: 0
+            ))
+        }
+    }
+
+    // Linear interpolation between two coordinates. Planar lerp in degree space —
+    // fine for the few metres a runner covers between frames.
+    private func lerpCoord(_ a: CLLocationCoordinate2D, _ b: CLLocationCoordinate2D, _ t: Double) -> CLLocationCoordinate2D {
+        CLLocationCoordinate2D(
+            latitude: a.latitude + (b.latitude - a.latitude) * t,
+            longitude: a.longitude + (b.longitude - a.longitude) * t
+        )
+    }
+
+    // Interpolate a compass heading along the SHORTEST rotation, so a turn from
+    // 350° to 10° sweeps +20° through north instead of unwinding -340° the long way.
+    private func lerpHeading(_ from: Double, _ to: Double, _ t: Double) -> Double {
+        var delta = (to - from).truncatingRemainder(dividingBy: 360)
+        if delta > 180 { delta -= 360 }
+        if delta < -180 { delta += 360 }
+        let h = from + delta * t
+        return (h.truncatingRemainder(dividingBy: 360) + 360).truncatingRemainder(dividingBy: 360)
     }
 
     private func updateStep(coord: CLLocationCoordinate2D) {
@@ -433,7 +508,7 @@ struct RunView: View {
     private func handleStop() {
         stopTracking()
         runEnded = true
-        runData = LocalRun(
+        let finished = LocalRun(
             id: nil,
             routeName: route.routeName,
             distance: distanceCovered,
@@ -442,6 +517,11 @@ struct RunView: View {
             terrain: route.terrain,
             date: ISO8601DateFormatter().string(from: Date())
         )
+        // Persist the instant the run ends — not as a side effect of the summary
+        // screen appearing. Decoupling the save from view lifecycle means a run is
+        // never lost if RunSummaryView's .task doesn't fire for any reason.
+        AppState.shared.addLocalRun(finished)
+        runData = finished
         navigateToSummary = true
     }
 

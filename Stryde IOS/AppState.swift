@@ -7,7 +7,15 @@ import ClerkKit
 @MainActor
 class AppState {
     static let shared = AppState()
-    private init() {}
+    private init() {
+        #if DEBUG
+        // When the "-StrydeAuthBypass" launch arg is set on the scheme, seed a
+        // fake signed-in session before the first frame renders. See the
+        // "Debug auth bypass" section below. This block is compiled out entirely
+        // in Release, so the bypass can never reach a shipped build.
+        if Self.authBypassEnabled { enableDebugSession() }
+        #endif
+    }
 
     // These three drive what ContentView renders, same as the flags in AppNavigator.js
     var bootDone = false
@@ -51,6 +59,59 @@ class AppState {
         showRoutePreview = false
         showBuildRun = false
     }
+
+    // MARK: - Debug auth bypass (DEBUG builds only)
+    //
+    // Why this exists: Clerk sign-in fails intermittently in the Simulator with
+    // TLS / session errors, which blocks testing every authenticated screen. This
+    // lets a DEBUG build skip Clerk completely and boot straight into Home with a
+    // seeded profile, so the run flow / RunView / history / settings can be tested
+    // in the sim without touching Clerk's network path.
+    //
+    // It is OFF by default even in DEBUG. It only activates when the
+    // "-StrydeAuthBypass" launch argument is present on the scheme
+    // (Product → Scheme → Edit Scheme → Run → Arguments → "Arguments Passed On
+    // Launch"). Untick that argument and you're back to the real Clerk flow.
+    //
+    // `#if DEBUG` ... `#else return false` means: in a Release build this property
+    // is hard-wired to false and the seed code below is stripped out, so the
+    // bypass physically cannot ship.
+    // `nonisolated` lets non-main-actor code (e.g. APIService) read this without an
+    // actor hop. It's safe: it only reads ProcessInfo and touches no mutable state.
+    nonisolated static var authBypassEnabled: Bool {
+        #if DEBUG
+        return ProcessInfo.processInfo.arguments.contains("-StrydeAuthBypass")
+        #else
+        return false
+        #endif
+    }
+
+    #if DEBUG
+    /// Seeds a fake signed-in session so ContentView can render the app shell
+    /// without Clerk and without running boot()'s network calls.
+    ///
+    /// - A *complete* `userProfile` (so `hasProfile` is true → we land on Home,
+    ///   not Onboarding). Values mirror the option strings OnboardingView uses.
+    /// - `bootDone = true` so ContentView skips the loading spinner.
+    ///
+    /// Note: because boot() never runs, `APIService.tokenGetter` stays nil, so any
+    /// live backend call (route generation, profile/run sync) will 401. That's
+    /// expected — this is for testing the local authenticated UI, not the backend.
+    func enableDebugSession() {
+        userProfile = UserProfile(
+            fitnessLevel: "Intermediate",
+            terrain: ["Parks", "Waterfront"],
+            preferredDistance: "2 - 4 miles",
+            goals: ["Get fit", "Explore new areas"],
+            phone: nil,
+            age: "28",
+            gender: "Prefer not to say"
+        )
+        hasProfile = true
+        bootDone = true
+        print("[AppState] DEBUG auth bypass active — seeded fake profile, skipped Clerk + boot().")
+    }
+    #endif
 
     // MARK: - Boot sequence (mirrors AppNavigator.js steps 3-8)
 
@@ -147,20 +208,35 @@ class AppState {
     }
 
     func loadLocalRuns() -> [LocalRun] {
-        guard let data = UserDefaults.standard.data(forKey: localRunsKey) else { return [] }
-        return (try? JSONDecoder().decode([LocalRun].self, from: data)) ?? []
+        guard let data = UserDefaults.standard.data(forKey: localRunsKey) else {
+            print("[AppState] loadLocalRuns: no data at key '\(localRunsKey)' — 0 runs.")
+            return []
+        }
+        let decoded = (try? JSONDecoder().decode([LocalRun].self, from: data)) ?? []
+        print("[AppState] loadLocalRuns: \(data.count) bytes → \(decoded.count) runs decoded.")
+        return decoded
     }
 
     func addLocalRun(_ run: LocalRun) {
         localRuns.insert(run, at: 0)
         saveLocalRuns(localRuns)
-        // Sync to backend fire-and-forget, then stash the backend-assigned id locally.
+        let persistedBytes = UserDefaults.standard.data(forKey: localRunsKey)?.count ?? 0
+        print("[AppState] addLocalRun: saved '\(run.routeName)' "
+            + "(\(String(format: "%.2f", run.distance)) mi, \(run.duration)s). "
+            + "localRuns now \(localRuns.count); UserDefaults holds \(persistedBytes) bytes for key '\(localRunsKey)'.")
+        // Sync to backend, then stash the backend-assigned id locally. The result is
+        // logged rather than silently swallowed (was `try?`), so a failing /runs POST
+        // is visible while testing. The run is always kept locally regardless.
         Task { @MainActor in
-            if let backendRun = try? await APIService.shared.postRun(run.toBackendRun()) {
+            do {
+                let backendRun = try await APIService.shared.postRun(run.toBackendRun())
                 if let idx = localRuns.firstIndex(where: { $0.date == run.date }) {
                     localRuns[idx].id = backendRun.id
                     saveLocalRuns(localRuns)
                 }
+                print("[AppState] postRun OK: backend id \(backendRun.id ?? "nil")")
+            } catch {
+                print("[AppState] postRun FAILED (run kept locally): \(error.localizedDescription)")
             }
         }
     }

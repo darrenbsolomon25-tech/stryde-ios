@@ -107,6 +107,42 @@ Shared `jsonRequest` helper: 20s timeout, surfaces backend `reason`/`error`.
 6. Set `hasProfile = userProfile != nil`, `bootDone = true`.
 7. `ContentView` reacts: `hasProfile` false → `OnboardingView`; true → `HomeView`.
 
+### DEBUG-only Clerk sign-in bypass (Simulator testing)
+
+Clerk sign-in fails intermittently in the Simulator (TLS / session errors),
+which has repeatedly blocked testing the authenticated screens. There is now a
+DEBUG-only bypass that skips Clerk entirely and boots straight into Home with a
+seeded fake profile.
+
+- **How to turn it on:** Xcode → Product → Scheme → Edit Scheme → Run →
+  Arguments → "Arguments Passed On Launch" → add `-StrydeAuthBypass` (tick it).
+  Untick to return to the real Clerk flow. (CLI equivalent:
+  `xcrun simctl launch <udid> com.runstryde.Stryde-IOS -StrydeAuthBypass`.)
+- **What it does:** `AppState.authBypassEnabled` (in `AppState.swift`) reads that
+  launch arg; when set, `AppState.init` calls `enableDebugSession()` which seeds a
+  complete `userProfile`, sets `hasProfile = true` and `bootDone = true`.
+  `ContentView` has a `#if DEBUG` branch that, when the flag is on, renders the
+  app shell directly — skipping the `Clerk.shared.user == nil` gate and `boot()`.
+- **Can't ship:** `authBypassEnabled` is hard-wired to `false` in Release and the
+  seed code is inside `#if DEBUG`, so none of it compiles into a Release build.
+- **Reaching the run flow offline:** `boot()` is skipped so `APIService.tokenGetter`
+  stays nil — the real `/generate-route` would 401. So in bypass mode
+  `APIService.generateRoute` returns a **canned loop** (`APIService.cannedRoute`,
+  `#if DEBUG`) built as a circle around the current GPS, with waypoints[0] pinned to
+  the start so HomeView's snap check passes. This makes Quick Run / Build My Run →
+  RoutePreview → RunView → Summary → History fully testable with no backend.
+- **Still 401s in bypass:** profile/run *sync* (touch, getProfile, getRuns, postRun).
+  Those are fire-and-forget or fall back to UserDefaults, so the UI still works; the
+  run-save path keeps the run locally regardless of the failed POST.
+- **Cosmetic:** greeting shows "Runner" and Settings/Drawer email are blank because
+  `Clerk.shared.user` is nil. Harmless.
+- **Testing the Waze marker:** to see the live marker glide along the route, set a
+  *moving* simulated location (Xcode Debug bar → location → City Run, or load a GPX).
+  A static location still lets you reach and eyeball RunView, just without movement.
+- **Verified 2026-06-14:** with the arg → HomeView; without it → SignInView. Build
+  (Debug, iPhone 17 Pro sim) + both launch paths confirmed. Canned route compiles;
+  run-flow tap-through not yet manually walked.
+
 ---
 
 ## What's broken / half-wired

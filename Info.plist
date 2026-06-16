@@ -18,5 +18,14 @@
 	<array>
 		<string>location</string>
 	</array>
+	<!--
+	  Export compliance: Stryde uses only standard HTTPS/TLS (Railway API + Clerk),
+	  which is exempt encryption. Declaring this here removes the per-build
+	  export-compliance questionnaire in App Store Connect that otherwise gates
+	  every TestFlight/App Store build. No INFOPLIST_KEY_ equivalent, so it lives
+	  in the base file alongside UIBackgroundModes.
+	-->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 </dict>
 </plist>

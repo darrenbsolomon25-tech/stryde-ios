@@ -5,7 +5,6 @@ struct RunSummaryView: View {
     let fromHistory: Bool  // true when opened from RunHistoryView — don't re-save
 
     @Environment(\.dismiss) private var dismiss
-    @State private var didSave = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -64,13 +63,9 @@ struct RunSummaryView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         .background(Color(hex: "#27272D").ignoresSafeArea())
         .navigationBarHidden(true)
-        // .task runs once on first appearance — same as useEffect([], []) in React.
-        // The didSave guard mirrors the useRef(false) pattern in RunSummaryScreen.js.
-        .task {
-            guard !fromHistory, !didSave else { return }
-            didSave = true
-            AppState.shared.addLocalRun(run)
-        }
+        // Display only — the run is now persisted in RunView.handleStop() the moment
+        // it ends, so this screen never writes anything (whether reached after a run
+        // or opened read-only from Run History).
     }
 
     private func statCard(value: String, label: String) -> some View {

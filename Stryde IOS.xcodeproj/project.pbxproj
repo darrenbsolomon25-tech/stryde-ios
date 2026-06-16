@@ -268,9 +268,9 @@
 				DEVELOPMENT_TEAM = 3GNU7SWF7D;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Info.plist;
 				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "Stryde tracks your route in the background so your run keeps recording when the screen is locked or the phone is in your pocket.";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Stryde needs your location to generate personalized running routes and track your run.";
-				INFOPLIST_FILE = "Info.plist";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -303,9 +303,9 @@
 				DEVELOPMENT_TEAM = 3GNU7SWF7D;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Info.plist;
 				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "Stryde tracks your route in the background so your run keeps recording when the screen is locked or the phone is in your pocket.";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Stryde needs your location to generate personalized running routes and track your run.";
-				INFOPLIST_FILE = "Info.plist";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
