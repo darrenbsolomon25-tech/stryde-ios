@@ -506,6 +506,11 @@ struct RunView: View {
     }
 
     private func handleStop() {
+        // Idempotency guard: "End Run" has no disabled state, so a fast double-tap
+        // (likely on a real device before the summary push covers this screen) would
+        // otherwise call addLocalRun twice and save the run twice. `runEnded` is the
+        // latch — set below and never reset, so the second tap returns immediately.
+        guard !runEnded else { return }
         stopTracking()
         runEnded = true
         let finished = LocalRun(
