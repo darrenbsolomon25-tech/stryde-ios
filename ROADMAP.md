@@ -273,3 +273,11 @@ These are not on the roadmap. They may happen after J if the core generator is p
 - **Route sharing / community browse** — needs density that doesn't exist yet. Revisit after App Store.
 - **Android** — after iOS is stable.
 - **Web version** — not planned.
+
+### Tech debt
+- **`LocalRun` identity hardening** — `LocalRun` conforms to `Identifiable` on its optional
+  backend `id` (`LocalRun.swift`), which is `nil` until the `/runs` POST succeeds. This caused
+  Run History to collapse all unsynced runs into one row (fixed 2026-06-23 by keying the list
+  `ForEach` on `\.date` in `RunHistoryView.swift`). Robust fix: add `let localID = UUID()` to
+  `LocalRun`, conform `Identifiable` to that, keep the backend `id` as a separate field. Needs
+  a UserDefaults migration for already-saved runs. Own chat. Good to do before J (App Store).

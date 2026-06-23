@@ -12,6 +12,14 @@ struct LocalRun: Codable, Identifiable {
     var terrain: [String]
     var date: String       // ISO-8601
 
+    // The planned loop the run followed, saved so the summary screen can draw it.
+    // Optional with a `nil` default for two reasons: (1) runs saved before this
+    // field existed have no `waypoints` key in UserDefaults, and an optional
+    // decodes a missing key as `nil` instead of throwing; (2) the default makes
+    // the synthesized memberwise initializer treat it as optional, so existing
+    // `LocalRun(...)` call sites that don't pass it still compile unchanged.
+    var waypoints: [Waypoint]? = nil
+
     // Converts to the backend Run shape (km, startedAt/endedAt) for postRun().
     func toBackendRun() -> Run {
         let start = date
@@ -49,15 +57,22 @@ func parseMiles(_ s: String) -> Double {
     Double(s.replacingOccurrences(of: " mi", with: "").trimmingCharacters(in: .whitespaces)) ?? 3.0
 }
 
-// Cardinal bearing from point A to point B — used to tell the runner
-// which direction to walk to reach a suggested start point.
-func bearingCardinal(_ lat1: Double, _ lon1: Double, _ lat2: Double, _ lon2: Double) -> String {
+// Compass bearing in degrees (0–360, 0 = north) from point A to point B.
+// Shared by the cardinal helper below and by RunView, which uses it to point the
+// runner's arrow along the route instead of along the noisy GPS course.
+func bearingDegrees(_ lat1: Double, _ lon1: Double, _ lat2: Double, _ lon2: Double) -> Double {
     let dLon = (lon2 - lon1) * .pi / 180
     let y = sin(dLon) * cos(lat2 * .pi / 180)
     let x = cos(lat1 * .pi / 180) * sin(lat2 * .pi / 180)
         - sin(lat1 * .pi / 180) * cos(lat2 * .pi / 180) * cos(dLon)
-    var bearing = atan2(y, x) * 180 / .pi
-    if bearing < 0 { bearing += 360 }
+    let bearing = atan2(y, x) * 180 / .pi
+    return (bearing + 360).truncatingRemainder(dividingBy: 360)
+}
+
+// Cardinal bearing from point A to point B — used to tell the runner
+// which direction to walk to reach a suggested start point.
+func bearingCardinal(_ lat1: Double, _ lon1: Double, _ lat2: Double, _ lon2: Double) -> String {
+    let bearing = bearingDegrees(lat1, lon1, lat2, lon2)
     let dirs = ["N", "NE", "E", "SE", "S", "SW", "W", "NW", "N"]
     return dirs[Int((bearing + 22.5) / 45) % 8]
 }

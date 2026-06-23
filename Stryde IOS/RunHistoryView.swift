@@ -25,7 +25,12 @@ struct RunHistoryView: View {
                     VStack(spacing: 12) {
                         summaryHeader
                         LazyVStack(spacing: 8) {
-                            ForEach(appState.localRuns) { run in
+                            // Identify rows by `date`, not `id`. `id` is the backend run id,
+                            // which is nil until /runs POST succeeds — so unsynced runs all
+                            // share identity nil and ForEach collapses them into a single row.
+                            // `date` (ISO-8601) is unique per run and is already the key used
+                            // by addLocalRun/deleteRun, so it's the stable identity here.
+                            ForEach(appState.localRuns, id: \.date) { run in
                                 NavigationLink {
                                     RunSummaryView(run: run, fromHistory: true)
                                 } label: {

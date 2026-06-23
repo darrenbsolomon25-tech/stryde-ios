@@ -1,10 +1,43 @@
 import SwiftUI
+import MapKit
 
 struct RunSummaryView: View {
     let run: LocalRun
     let fromHistory: Bool  // true when opened from RunHistoryView — don't re-save
 
     @Environment(\.dismiss) private var dismiss
+
+    // The run's route as map coordinates. Empty for runs saved before route
+    // geometry was stored (older history entries) — the map is hidden then.
+    private var coords: [CLLocationCoordinate2D] {
+        (run.waypoints ?? []).map {
+            CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude)
+        }
+    }
+
+    // Fit the whole loop inside the map frame — same bounds-fit math as
+    // RoutePreviewView, so the route reads the same here as it did before the run.
+    // `.region(...)` builds a MapCameraPosition from a center point plus a span
+    // (how many degrees of lat/lng to show); the *1.5 padding leaves a margin so
+    // the polyline isn't flush against the edges, and the max(..., 0.005) floor
+    // stops a tiny loop from zooming in absurdly far.
+    private var cameraPosition: MapCameraPosition {
+        let pts = coords
+        guard !pts.isEmpty else { return .automatic }
+        let lats = pts.map(\.latitude)
+        let lngs = pts.map(\.longitude)
+        let minLat = lats.min()!, maxLat = lats.max()!
+        let minLng = lngs.min()!, maxLng = lngs.max()!
+        let center = CLLocationCoordinate2D(
+            latitude: (minLat + maxLat) / 2,
+            longitude: (minLng + maxLng) / 2
+        )
+        let span = MKCoordinateSpan(
+            latitudeDelta: max((maxLat - minLat) * 1.5, 0.005),
+            longitudeDelta: max((maxLng - minLng) * 1.5, 0.005)
+        )
+        return .region(MKCoordinateRegion(center: center, span: span))
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -23,7 +56,32 @@ struct RunSummaryView: View {
             }
             .padding(.horizontal, 24)
             .padding(.top, 48)
-            .padding(.bottom, 32)
+            .padding(.bottom, 24)
+
+            // Map of the route just run. Only shown when geometry is present:
+            // `coords.count > 1` guards against older history entries (saved
+            // before waypoints were stored) and degenerate single-point routes.
+            // `.allowsHitTesting(false)` makes it a static snapshot — taps and
+            // drags pass through instead of letting the user pan/zoom it.
+            if coords.count > 1 {
+                Map(initialPosition: cameraPosition) {
+                    MapPolyline(coordinates: coords)
+                        .stroke(Color(hex: "#FF6B35"), lineWidth: 5)
+                    if let first = coords.first {
+                        Annotation("Start", coordinate: first) {
+                            Circle()
+                                .fill(Color(hex: "#FF6B35"))
+                                .frame(width: 14, height: 14)
+                                .overlay(Circle().stroke(.white, lineWidth: 2))
+                        }
+                    }
+                }
+                .frame(height: 200)
+                .clipShape(RoundedRectangle(cornerRadius: 20))
+                .allowsHitTesting(false)
+                .padding(.horizontal, 24)
+                .padding(.bottom, 16)
+            }
 
             // 2×2 stats grid
             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
@@ -113,7 +171,15 @@ struct RunSummaryView: View {
         RunSummaryView(
             run: LocalRun(id: nil, routeName: "Park Loop", distance: 3.12,
                           duration: 1820, pace: 9.71, terrain: ["Parks", "Waterfront"],
-                          date: ISO8601DateFormatter().string(from: Date())),
+                          date: ISO8601DateFormatter().string(from: Date()),
+                          // A small square loop so the preview shows the map.
+                          waypoints: [
+                            Waypoint(latitude: 40.7128, longitude: -74.0060),
+                            Waypoint(latitude: 40.7138, longitude: -74.0060),
+                            Waypoint(latitude: 40.7138, longitude: -74.0048),
+                            Waypoint(latitude: 40.7128, longitude: -74.0048),
+                            Waypoint(latitude: 40.7128, longitude: -74.0060),
+                          ]),
             fromHistory: false
         )
     }

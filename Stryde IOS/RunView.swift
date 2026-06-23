@@ -33,15 +33,19 @@ private final class RunRef {
     var animDuration: Double = 1.0
     var lastFixTime: CFTimeInterval = 0
 
-    init(startCoord: CLLocationCoordinate2D) {
+    init(startCoord: CLLocationCoordinate2D, startHeading: Double = 0) {
         lastCoord = startCoord
         animFrom = startCoord
         animTo = startCoord
+        lastHeading = startHeading
+        animFromHeading = startHeading
+        animToHeading = startHeading
     }
 }
 
-// A triangular chevron marker drawn in SwiftUI — same concept as the
-// custom Marker in RunScreen.js that rotates with the runner's heading.
+// A triangular chevron marker drawn in SwiftUI. Its rotation is driven by the
+// ROUTE's direction at the runner's position (not the phone's compass / GPS
+// course), so the arrow always faces the way the path goes.
 private struct ChevronMarker: View {
     var rotation: Double  // degrees; 0 = pointing up
     var body: some View {
@@ -98,11 +102,19 @@ struct RunView: View {
     init(route: GeneratedRoute, startLocation: CLLocationCoordinate2D) {
         self.route = route
         self.startLocation = startLocation
+        // Orient everything to the route's opening direction from frame one, so the
+        // camera (and the arrow) start facing down the path instead of north and then
+        // swinging around on the first GPS fix.
+        let initialHeading: Double = route.waypoints.count > 1
+            ? bearingDegrees(route.waypoints[0].latitude, route.waypoints[0].longitude,
+                             route.waypoints[1].latitude, route.waypoints[1].longitude)
+            : 0
         _currentCoord = State(initialValue: startLocation)
-        _ref = State(initialValue: RunRef(startCoord: startLocation))
+        _heading = State(initialValue: initialHeading)
+        _ref = State(initialValue: RunRef(startCoord: startLocation, startHeading: initialHeading))
         _cameraPosition = State(initialValue: .camera(MapCamera(
             centerCoordinate: startLocation,
-            distance: 200, heading: 0, pitch: 65
+            distance: 200, heading: initialHeading, pitch: 65
         )))
     }
 
@@ -319,7 +331,6 @@ struct RunView: View {
     @MainActor
     private func processLocation(_ loc: CLLocation) {
         let coord = loc.coordinate
-        let newHeading = loc.course >= 0 ? loc.course : ref.lastHeading
 
         // Accumulate distance only while running (not paused).
         if isRunning {
@@ -337,9 +348,6 @@ struct RunView: View {
         }
 
         ref.lastCoord = coord  // raw GPS kept for distance accumulation
-        ref.lastHeading = newHeading
-        // Note: `heading` (the displayed value) is NOT set here — the render loop
-        // tweens it from its current value toward `newHeading` so turns sweep smoothly.
 
         // Exponential moving average smooths GPS noise so the marker doesn't
         // jitter on every tick. Alpha 0.3 keeps motion responsive at running
@@ -364,6 +372,14 @@ struct RunView: View {
             passedWaypointIndex = snapIdx
         }
 
+        // Heading comes from the ROUTE's direction at the snapped position — not from
+        // `loc.course`. The arrow and the follow-camera face the way the path goes, so
+        // the marker stays locked to the route no matter which way the phone points or
+        // how the GPS course jitters. (`heading` itself is set by the render loop, which
+        // tweens from its current value toward this target so turns sweep smoothly.)
+        let routeHdg = routeHeading(fromIndex: snapIdx, at: snapped) ?? ref.lastHeading
+        ref.lastHeading = routeHdg
+
         // Re-target the marker tween instead of snapping currentCoord to the fix.
         // Glide from where the marker is shown right now toward `snapped` over
         // roughly the gap since the last fix; the render loop fills the in-between
@@ -375,7 +391,7 @@ struct RunView: View {
         ref.animFrom = currentCoord
         ref.animTo = snapped
         ref.animFromHeading = heading
-        ref.animToHeading = newHeading
+        ref.animToHeading = routeHdg
         ref.animStart = now
         ref.animDuration = min(max(gap, 0.3), 1.5)
 
@@ -463,6 +479,37 @@ struct RunView: View {
         }
     }
 
+    // The direction the route itself runs at the runner's current position, taken
+    // purely from the route polyline — never from GPS course or the compass. We walk
+    // a short distance ahead along the path (past dense, individually-jittery
+    // waypoints) and return the bearing toward that look-ahead point, so the arrow
+    // points the way the route goes next rather than wherever the phone happens to be
+    // moving. `idx` is the segment the runner is snapped onto; `at` is the snapped
+    // point. Returns nil only once there's no path left ahead (caller keeps the last
+    // heading).
+    private func routeHeading(fromIndex idx: Int, at snapped: CLLocationCoordinate2D) -> Double? {
+        let wps = route.waypoints
+        guard wps.count > 1 else { return nil }
+        let lookaheadMeters = 20.0
+        var accumulated = 0.0
+        var prev = snapped
+        var i = idx + 1
+        while i < wps.count {
+            let pt = CLLocationCoordinate2D(latitude: wps[i].latitude, longitude: wps[i].longitude)
+            // haversineDistanceMiles → meters (×1609.34) to accumulate the look-ahead.
+            accumulated += haversineDistanceMiles(prev.latitude, prev.longitude, pt.latitude, pt.longitude) * 1609.34
+            if accumulated >= lookaheadMeters {
+                return bearingDegrees(snapped.latitude, snapped.longitude, pt.latitude, pt.longitude)
+            }
+            prev = pt
+            i += 1
+        }
+        // Within the look-ahead window of the finish: aim straight at the last waypoint.
+        guard let last = wps.last,
+              last.latitude != snapped.latitude || last.longitude != snapped.longitude else { return nil }
+        return bearingDegrees(snapped.latitude, snapped.longitude, last.latitude, last.longitude)
+    }
+
     // Projects `coord` onto each route segment in the lookahead window and
     // returns the segment start index plus the exact projected coordinate.
     // Segment projection (vs. nearest-waypoint) makes the chevron slide
@@ -513,6 +560,13 @@ struct RunView: View {
         guard !runEnded else { return }
         stopTracking()
         runEnded = true
+        // Save only the part of the loop actually covered, not the whole planned
+        // route. `ref.passedWaypointIndex` is the furthest waypoint the runner reached
+        // — it only ever advances forward (set in processLocation) — so taking the
+        // first `index + 1` waypoints is the path from the start through that point.
+        // Run half the loop → half is stored → the summary map draws half. `prefix`
+        // clamps to the array length, so an over-count can never index out of bounds.
+        let coveredWaypoints = Array(route.waypoints.prefix(ref.passedWaypointIndex + 1))
         let finished = LocalRun(
             id: nil,
             routeName: route.routeName,
@@ -520,7 +574,10 @@ struct RunView: View {
             duration: elapsedTime,
             pace: pace,
             terrain: route.terrain,
-            date: ISO8601DateFormatter().string(from: Date())
+            date: ISO8601DateFormatter().string(from: Date()),
+            // The covered portion of the planned route, so RunSummaryView (and Run
+            // History later) draws how far along the loop the runner actually got.
+            waypoints: coveredWaypoints
         )
         // Persist the instant the run ends — not as a side effect of the summary
         // screen appearing. Decoupling the save from view lifecycle means a run is
