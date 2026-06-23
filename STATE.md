@@ -1,6 +1,6 @@
 # Stryde iOS — current state
 
-Last updated: 2026-06-10 (Overpass 406 fixed + deployed; generateRoute timeout 20s→60s; route generation confirmed on a physical device; Item C "Back to Home" pop-to-root DONE — confirmed in the simulator)
+Last updated: 2026-06-23 (RunView heading now route-derived: runner arrow + follow-camera face the route's direction via a look-ahead bearing instead of the jittery GPS `loc.course`, so the pointer no longer spins with the phone — coded, not yet device-tested)
 
 Source of truth for what the app **actually does right now**, not what it should do.
 If you change something, update the relevant section in the same sitting.
@@ -64,6 +64,9 @@ overlay on `HomeView`.
    stays on the polyline. Completed segment renders grey (#666666, 4pt); remaining
    orange (#FF6B35, 6pt); split is exact at the projected runner position.
    Camera animates between fixes (.linear 0.8s follow / 0.5s overhead).
+   Heading (chevron rotation + follow-camera bearing) is derived from the **route
+   geometry** at the snapped position, not from GPS `loc.course` — see the
+   "route-locked heading" note below.
    **Not yet confirmed working on device** — needs a real outdoor run test.
 
 8. **RunSummaryView** — post-run stats (distance, duration, pace, route name).
@@ -197,6 +200,35 @@ seeded fake profile.
   `@MapContentBuilder` compilation restriction (let bindings not allowed inside).
 - Completed segment: grey #666666, 4pt. Split is exact at projected runner position.
 - Camera animated: `.linear(0.8s)` follow mode, `.linear(0.5s)` overhead.
+
+## Route-locked heading (coded 2026-06-23, not yet device-tested)
+
+The runner arrow and the follow-camera used to take their heading from
+`loc.course` — the GPS course-over-ground. That value is jittery at running pace
+and meaningless when slow/stationary, so the arrow spun around independently of
+the route (it read as "the pointer reacts to which way the phone faces").
+
+Heading is now derived purely from the **route polyline**:
+
+- New `RunView.routeHeading(fromIndex:at:)` — from the runner's snapped position it
+  walks ~20 m forward along the route waypoints and returns the bearing to that
+  look-ahead point. Look-ahead (vs. the immediate segment) is deliberate: waypoints
+  are dense and per-segment bearings are noisy, so aiming a short distance ahead
+  gives a stable "where the path goes next" direction. Near the finish it aims at
+  the final waypoint; returns `nil` only with no path left (caller keeps last heading).
+- `processLocation` no longer reads `loc.course`; after snapping it computes
+  `routeHdg` and feeds it into the existing heading tween, so turns still sweep
+  smoothly — just toward the route's direction, not the GPS course.
+- `RunView.init` seeds the initial heading + camera from the route's opening bearing
+  (waypoints[0]→[1]) so it starts facing down the path instead of north-then-swinging
+  on the first fix. `RunRef.init` gained a `startHeading` param.
+- `LocalRun.swift` — extracted a numeric `bearingDegrees(...)` (0–360°) helper;
+  `bearingCardinal` refactored to call it. Shared by `RunView`.
+
+Net effect: follow mode rotates the camera so the route ahead fills the screen
+(arrow points up); overhead mode keeps the map north-up and rotates the arrow along
+the route. Either way the pointer is fixed to the route, not the phone. Needs the
+same outdoor run test as Item B to confirm it tracks correctly through turns.
 
 ## previousRequestId wiring (coded)
 
