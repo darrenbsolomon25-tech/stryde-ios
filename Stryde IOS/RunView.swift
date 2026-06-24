@@ -81,6 +81,21 @@ struct RunView: View {
     @State private var distanceCovered: Double = 0
     @State private var pace: Double = 0
     @State private var isRunning = true
+
+    // Run lifecycle phase. The run opens in `.approachingStart`: the runner is usually
+    // 20-30 ft from the route's first waypoint (the loop snaps to the nearest path),
+    // so the timer and distance stay frozen at zero while they walk to the line.
+    // Reaching the start unlocks the Start button; tapping it runs a 5-sec countdown
+    // and flips to `.running`, where normal tracking takes over.
+    private enum RunPhase: Equatable { case approachingStart, running }
+    @State private var phase: RunPhase = .approachingStart
+    @State private var distanceToStartFeet: Double? = nil
+    @State private var countdown: Int? = nil          // 5…1 during the pre-run countdown
+    @State private var countdownTask: Task<Void, Never>? = nil
+    // Unlock radius for the start gate. 10 ft ≈ 3 m — tight for consumer GPS, so it's
+    // one named constant; bump to ~25-30 if it won't unlock reliably outdoors.
+    private let unlockRadiusFeet: Double = 10
+
     @State private var currentStepIndex = 0
     @State private var passedWaypointIndex = 0
     @State private var cameraMode = "follow"
@@ -124,12 +139,34 @@ struct RunView: View {
         return route.steps[nextIdx]
     }
 
+    // The point the runner must reach before the run can begin: the route's first
+    // waypoint. Falls back to the passed-in start coordinate if a route somehow has
+    // no waypoints, so the gate just unlocks immediately rather than misbehaving.
+    private var startCoord: CLLocationCoordinate2D {
+        if let w = route.waypoints.first {
+            return CLLocationCoordinate2D(latitude: w.latitude, longitude: w.longitude)
+        }
+        return startLocation
+    }
+
+    // True once the runner is within the unlock radius of the start.
+    private var isAtStart: Bool {
+        guard let d = distanceToStartFeet else { return false }
+        return d <= unlockRadiusFeet
+    }
+
     // Computed here (not inside Map { }) because @MapContentBuilder only accepts
     // MapContent-returning expressions — let bindings produce () and won't compile.
     // Starts at the live (interpolated) runner position and runs to the finish, so
     // as `currentCoord` advances each frame the line shortens from behind — the
     // traveled path is consumed rather than left as a trail.
     private var remainingCoords: [CLLocationCoordinate2D] {
+        // Before the run starts, show the whole planned loop so the runner sees what
+        // they're about to run while walking to the line. Once running, the line is
+        // consumed from behind (live position → finish).
+        if phase == .approachingStart {
+            return route.waypoints.map { CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude) }
+        }
         let tail: [CLLocationCoordinate2D] = passedWaypointIndex + 1 < route.waypoints.count
             ? Array(route.waypoints[(passedWaypointIndex + 1)...])
                 .map { CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude) }
@@ -139,7 +176,9 @@ struct RunView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if let step = nextStep {
+            if phase == .approachingStart {
+                walkToStartCard
+            } else if let step = nextStep {
                 turnCard(step: step)
             }
 
@@ -187,11 +226,16 @@ struct RunView: View {
             statsPanel
         }
         .background(Color(hex: "#27272D").ignoresSafeArea())
-        // Hide the nav bar during the active run; show it after the run ends
-        // so the user can tap back once RunSummaryView is dismissed.
-        .navigationBarHidden(!runEnded)
+        // While approaching the start the nav bar stays visible so the runner can
+        // back out to the preview. It hides once the run is live, then reappears
+        // after the run ends so they can tap back once RunSummaryView is dismissed.
+        .navigationBarHidden(phase == .running && !runEnded)
         .navigationDestination(isPresented: $navigateToSummary) {
             if let data = runData { RunSummaryView(run: data, fromHistory: false) }
+        }
+        // The pre-run countdown sits on top of everything until it flips to .running.
+        .overlay {
+            if let value = countdown { countdownOverlay(value) }
         }
         .task { startTracking() }
         .onDisappear { stopTracking() }
@@ -229,6 +273,108 @@ struct RunView: View {
         .padding(.top, 8)
     }
 
+    // MARK: - Walk-to-start (pre-run)
+
+    // Shown in place of the turn card while the runner walks to the start line. Same
+    // blue card shape as a real maneuver, but the "instruction" is to reach the start
+    // and the big number is the live distance left to it.
+    private var walkToStartCard: some View {
+        HStack(spacing: 12) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color.white.opacity(0.15))
+                    .frame(width: 56, height: 56)
+                Image(systemName: "figure.walk")
+                    .font(.system(size: 26))
+                    .foregroundColor(.white)
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                Text(startDistanceText)
+                    .font(.system(size: 22, weight: .bold))
+                    .foregroundColor(.white)
+                Text("Walk to your start point")
+                    .font(.system(size: 13))
+                    .foregroundColor(Color.white.opacity(0.85))
+                    .lineLimit(2)
+            }
+            Spacer()
+        }
+        .padding(12)
+        .background(Color(hex: "#1E4FCC"))
+        .cornerRadius(16)
+        .padding(.horizontal, 20)
+        .padding(.top, 8)
+    }
+
+    private var startDistanceText: String {
+        guard let d = distanceToStartFeet else { return "Locating…" }
+        if isAtStart { return "You're at the start" }
+        return "\(Int(d.rounded())) ft to start"
+    }
+
+    // Bottom controls during the approach phase: a primary button locked until the
+    // runner reaches the start, plus a muted bypass so a bad GPS fix can't trap them
+    // here. Both routes lead through the countdown into the live run.
+    private var approachControls: some View {
+        VStack(spacing: 8) {
+            Button {
+                if isAtStart { beginRun() }
+            } label: {
+                Text(isAtStart ? "Start Run" : "Walk to the start to unlock")
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundColor(isAtStart ? Color(hex: "#27272D") : Color(hex: "#888888"))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 16)
+                    .background(isAtStart ? Color(hex: "#C6F135") : Color(hex: "#1A1A1A"))
+                    .cornerRadius(14)
+            }
+            .disabled(!isAtStart)
+
+            Button { beginRun() } label: {
+                Text("GPS off? Start anyway")
+                    .font(.system(size: 13))
+                    .foregroundColor(Color(hex: "#888888"))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 4)
+            }
+        }
+    }
+
+    // Full-screen countdown shown after the runner commits, before tracking begins.
+    private func countdownOverlay(_ value: Int) -> some View {
+        ZStack {
+            Color.black.opacity(0.85).ignoresSafeArea()
+            VStack(spacing: 16) {
+                Text("Starting in")
+                    .font(.system(size: 18, weight: .medium))
+                    .foregroundColor(Color(hex: "#888888"))
+                // `.id(value)` gives each number its own identity so 5→4→3 is a
+                // replace (the transition re-fires) rather than one label editing text.
+                Text("\(value)")
+                    .font(.system(size: 120, weight: .bold))
+                    .foregroundColor(Color(hex: "#C6F135"))
+                    .id(value)
+                    .transition(.scale.combined(with: .opacity))
+                Button {
+                    countdownTask?.cancel()
+                    countdown = nil
+                } label: {
+                    Text("Cancel")
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 28)
+                        .padding(.vertical, 12)
+                        .background(Color(hex: "#1A1A1A"))
+                        .cornerRadius(14)
+                        .overlay(RoundedRectangle(cornerRadius: 14)
+                            .stroke(Color(hex: "#333333"), lineWidth: 1))
+                }
+                .padding(.top, 12)
+            }
+        }
+        .animation(.easeOut(duration: 0.25), value: value)
+    }
+
     // MARK: - Stats panel
 
     private var statsPanel: some View {
@@ -244,27 +390,31 @@ struct RunView: View {
             .background(Color(hex: "#1A1A1A"))
             .cornerRadius(16)
 
-            HStack(spacing: 8) {
-                Button {
-                    isRunning.toggle()
-                    if isRunning { startTimer() } else { timerTask?.cancel() }
-                } label: {
-                    Text(isRunning ? "Pause" : "Resume")
-                        .font(.system(size: 15, weight: .bold))
-                        .foregroundColor(.white)
-                        .frame(maxWidth: .infinity).padding(.vertical, 14)
-                        .background(Color(hex: "#1A1A1A"))
-                        .cornerRadius(14)
-                        .overlay(RoundedRectangle(cornerRadius: 14)
-                            .stroke(!isRunning ? Color(hex: "#C6F135") : Color(hex: "#333333"), lineWidth: 1))
-                }
-                Button { handleStop() } label: {
-                    Text("End Run")
-                        .font(.system(size: 15, weight: .bold))
-                        .foregroundColor(.white)
-                        .frame(maxWidth: .infinity).padding(.vertical, 14)
-                        .background(Color(hex: "#FF3B30"))
-                        .cornerRadius(14)
+            if phase == .approachingStart {
+                approachControls
+            } else {
+                HStack(spacing: 8) {
+                    Button {
+                        isRunning.toggle()
+                        if isRunning { startTimer() } else { timerTask?.cancel() }
+                    } label: {
+                        Text(isRunning ? "Pause" : "Resume")
+                            .font(.system(size: 15, weight: .bold))
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity).padding(.vertical, 14)
+                            .background(Color(hex: "#1A1A1A"))
+                            .cornerRadius(14)
+                            .overlay(RoundedRectangle(cornerRadius: 14)
+                                .stroke(!isRunning ? Color(hex: "#C6F135") : Color(hex: "#333333"), lineWidth: 1))
+                    }
+                    Button { handleStop() } label: {
+                        Text("End Run")
+                            .font(.system(size: 15, weight: .bold))
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity).padding(.vertical, 14)
+                            .background(Color(hex: "#FF3B30"))
+                            .cornerRadius(14)
+                    }
                 }
             }
         }
@@ -284,7 +434,10 @@ struct RunView: View {
     // MARK: - Tracking
 
     private func startTracking() {
-        startTimer()
+        // NOTE: the run timer is NOT started here. The run opens in `.approachingStart`,
+        // so time/distance must stay frozen until `beginRun()` flips to `.running`.
+        // Location streaming + the marker glide DO start now, so we can track the
+        // runner walking to the start and detect when they've arrived.
         // Open a background activity session so CLLocationUpdate.liveUpdates keeps
         // delivering fixes after the screen locks or the app backgrounds. Without
         // this (and the `location` UIBackgroundMode declared in the project) the
@@ -322,6 +475,7 @@ struct RunView: View {
         timerTask?.cancel()
         locationTask?.cancel()
         animTask?.cancel()
+        countdownTask?.cancel()
         // End the background session so iOS stops the run's background-location
         // activity (and drops the blue status-bar indicator) once the run is over.
         ref.backgroundSession?.invalidate()
@@ -331,6 +485,26 @@ struct RunView: View {
     @MainActor
     private func processLocation(_ loc: CLLocation) {
         let coord = loc.coordinate
+
+        // Approaching-start phase: freeze time/distance, don't snap to the route or
+        // advance steps. Track the runner's real position, measure how far they still
+        // are from the start, and aim the chevron (and follow-camera) straight at the
+        // start so it reads as a "walk this way" arrow.
+        if phase == .approachingStart {
+            ref.lastCoord = coord  // keep current so the first running fix adds ~0
+            updateSmoothed(coord)
+            let smooth = CLLocationCoordinate2D(latitude: ref.smoothLat, longitude: ref.smoothLng)
+            let target = startCoord
+            distanceToStartFeet = haversineDistanceMiles(
+                smooth.latitude, smooth.longitude, target.latitude, target.longitude
+            ) * 5280
+            let hdg = bearingDegrees(smooth.latitude, smooth.longitude, target.latitude, target.longitude)
+            ref.lastHeading = hdg
+            retargetMarker(to: smooth, heading: hdg)
+            return
+        }
+
+        // --- Running phase ---
 
         // Accumulate distance only while running (not paused).
         if isRunning {
@@ -349,18 +523,7 @@ struct RunView: View {
 
         ref.lastCoord = coord  // raw GPS kept for distance accumulation
 
-        // Exponential moving average smooths GPS noise so the marker doesn't
-        // jitter on every tick. Alpha 0.3 keeps motion responsive at running
-        // pace without amplifying satellite-bounce artifacts.
-        let alpha = 0.3
-        if ref.isFirstLoc {
-            ref.smoothLat = coord.latitude
-            ref.smoothLng = coord.longitude
-            ref.isFirstLoc = false
-        } else {
-            ref.smoothLat = alpha * coord.latitude + (1 - alpha) * ref.smoothLat
-            ref.smoothLng = alpha * coord.longitude + (1 - alpha) * ref.smoothLng
-        }
+        updateSmoothed(coord)
         let smooth = CLLocationCoordinate2D(latitude: ref.smoothLat, longitude: ref.smoothLng)
 
         // Project the smoothed position onto the nearest route segment so the
@@ -380,22 +543,74 @@ struct RunView: View {
         let routeHdg = routeHeading(fromIndex: snapIdx, at: snapped) ?? ref.lastHeading
         ref.lastHeading = routeHdg
 
-        // Re-target the marker tween instead of snapping currentCoord to the fix.
-        // Glide from where the marker is shown right now toward `snapped` over
-        // roughly the gap since the last fix; the render loop fills the in-between
-        // frames. Clamp the duration so a long gap (e.g. the app was backgrounded)
-        // doesn't make the marker crawl, and a burst of fixes doesn't teleport it.
+        retargetMarker(to: snapped, heading: routeHdg)
+        updateStep(coord: coord)
+    }
+
+    // Exponential moving average over raw GPS, shared by both phases. Alpha 0.3 keeps
+    // motion responsive at running pace without amplifying satellite-bounce jitter.
+    @MainActor
+    private func updateSmoothed(_ coord: CLLocationCoordinate2D) {
+        let alpha = 0.3
+        if ref.isFirstLoc {
+            ref.smoothLat = coord.latitude
+            ref.smoothLng = coord.longitude
+            ref.isFirstLoc = false
+        } else {
+            ref.smoothLat = alpha * coord.latitude + (1 - alpha) * ref.smoothLat
+            ref.smoothLng = alpha * coord.longitude + (1 - alpha) * ref.smoothLng
+        }
+    }
+
+    // Re-aim the marker glide: tween from where the marker shows now toward `target`
+    // (and `hdg`) over roughly the gap since the last fix, clamped so a long gap
+    // doesn't crawl and a burst of fixes doesn't teleport. The render loop fills frames.
+    @MainActor
+    private func retargetMarker(to target: CLLocationCoordinate2D, heading hdg: Double) {
         let now = CACurrentMediaTime()
         let gap = ref.lastFixTime > 0 ? now - ref.lastFixTime : 1.0
         ref.lastFixTime = now
         ref.animFrom = currentCoord
-        ref.animTo = snapped
+        ref.animTo = target
         ref.animFromHeading = heading
-        ref.animToHeading = routeHdg
+        ref.animToHeading = hdg
         ref.animStart = now
         ref.animDuration = min(max(gap, 0.3), 1.5)
+    }
 
-        updateStep(coord: coord)
+    // MARK: - Starting the run
+
+    // Called when the runner taps Start (or the bypass). Runs a 5→1 countdown, then
+    // flips to the running phase. Cancelable via the overlay's Cancel button. The
+    // `countdown == nil` guard stops a double-tap from spawning a second countdown.
+    private func beginRun() {
+        guard phase == .approachingStart, countdown == nil else { return }
+        countdownTask?.cancel()
+        countdownTask = Task {
+            for n in stride(from: 5, through: 1, by: -1) {
+                await MainActor.run { countdown = n }
+                try? await Task.sleep(for: .seconds(1))
+                if Task.isCancelled { return }
+            }
+            await MainActor.run { startRunningPhase() }
+        }
+    }
+
+    @MainActor
+    private func startRunningPhase() {
+        countdown = nil
+        phase = .running
+        // Anchor distance at the runner's current position so the walk-to-start leg
+        // isn't counted, and zero the clock/odometer the live run starts from.
+        ref.lastCoord = currentCoord
+        ref.accumulatedDistance = 0
+        distanceCovered = 0
+        ref.passedWaypointIndex = 0
+        passedWaypointIndex = 0
+        ref.lastFixTime = 0
+        elapsedTime = 0
+        ref.elapsedSec = 0
+        startTimer()
     }
 
     // Frame-rate marker glide. GPS fixes land ~1Hz; this loop runs ~60fps and

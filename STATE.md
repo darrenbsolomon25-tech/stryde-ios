@@ -1,6 +1,6 @@
 # Stryde iOS — current state
 
-Last updated: 2026-06-23 (RunView heading now route-derived: runner arrow + follow-camera face the route's direction via a look-ahead bearing instead of the jittery GPS `loc.course`, so the pointer no longer spins with the phone — coded, not yet device-tested)
+Last updated: 2026-06-23 (RunView now opens in a walk-to-start phase: the timer/distance stay frozen while the runner walks to the route's first waypoint; the Start button stays locked until within 10 ft of it, then a 5→1 countdown flips to live tracking — so a run no longer starts counting while the runner is still walking to the line. Built as a phase inside RunView, not a separate screen. Coded + builds clean, not yet device-tested. Earlier same day: RunView heading now route-derived via look-ahead bearing instead of GPS `loc.course`)
 
 Source of truth for what the app **actually does right now**, not what it should do.
 If you change something, update the relevant section in the same sitting.
@@ -49,16 +49,29 @@ overlay on `HomeView`.
 
 6. **RoutePreviewView** — shows the generated route as a MapKit `MapPolyline` on a
    bounds-fit map. Route name, terrain description, distance, estimated time.
-   "Start Run" → `RunView`. "Regenerate" → re-calls `generateRoute` and replaces the
-   route in place. Fires `postRouteFeedback("accept")` / `("reject")` on those taps.
+   "Start Run" → `RunView` (which opens in its walk-to-start phase, below).
+   "Regenerate" → re-calls `generateRoute` and replaces the route in place. Fires
+   `postRouteFeedback("accept")` / `("reject")` on those taps.
    Note: `postRouteFeedback` is defined in `APIService` but the call in `RoutePreviewView`
    may not be wired yet — verify before marking done.
 
 7. **RunView** — live GPS tracking via `CLLocationUpdate.liveUpdates(.fitness)`.
+   **Walk-to-start phase:** the route's first waypoint is usually 20-30 ft away (the
+   loop snaps to the nearest path), so RunView opens in `phase == .approachingStart`
+   with the timer and distance frozen at zero. A blue "Walk to your start point" card
+   shows the live feet-to-start, the chevron + follow-camera point at the start, and
+   the whole loop is drawn. The bottom button stays **locked until the runner is within
+   `unlockRadiusFeet` (10 ft) of `route.waypoints.first`** (`isAtStart`); a muted "GPS
+   off? Start anyway" link is the escape hatch so a bad fix can't trap them. Tapping
+   Start (or the bypass) runs a 5→1 countdown overlay, then `startRunningPhase()` flips
+   to `.running`, anchors `lastCoord` so the walk leg isn't counted, zeroes the
+   clock/odometer, and starts the timer. Approach detection + freezing live in
+   `processLocation`; the EMA smoothing and marker tween are factored into
+   `updateSmoothed` / `retargetMarker`, shared by both phases.
    Accumulates distance with `haversineDistanceMiles` (raw GPS). Camera modes:
    follow (behind-runner, pitch 65, animated) and overhead (north-up, animated).
    Step-by-step nav: advances `currentStep` when within 25m of the step's location.
-   Timer counts up. "Finish Run" → `RunSummaryView`.
+   Timer counts up. "End Run" → `RunSummaryView`.
    GPS is smoothed via exponential moving average (alpha=0.3) before display.
    Runner chevron projects onto nearest route segment (`projectOnSegment`) so it
    stays on the polyline. Completed segment renders grey (#666666, 4pt); remaining

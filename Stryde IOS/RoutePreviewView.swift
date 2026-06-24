@@ -113,7 +113,8 @@ struct RoutePreviewView: View {
                 .cornerRadius(16)
                 .padding(.bottom, 12)
 
-                // Start Run — fires postRouteFeedback(accept) then pushes RunView
+                // Start Run — fires postRouteFeedback(accept) then pushes RunView,
+                // which opens in its walk-to-start phase before the run goes live.
                 Button {
                     Task { try? await APIService.shared.postRouteFeedback(requestId: route.requestId, event: "accept") }
                     navigateToRun = true
