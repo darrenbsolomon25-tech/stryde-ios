@@ -1,5 +1,7 @@
 # Stryde iOS — current state
 
+Last updated: 2026-06-26 (First-run fixes, post first on-device run. Builds clean (simulator), not yet device-tested; backend changes not yet deployed to Railway. (1) Start gate widened from 10 ft → 50 ft, and now widens further to the live GPS horizontal accuracy when that's looser — 10 ft never tripped on real hardware. (2) Auto-finish: once the runner loops back within 25 ft of the final waypoint (after covering ≥85% of the loop), a full-screen prompt auto-appears — "End Run" (default) or "Keep running". (3) BuildRunView: tapping Generate with no distance now shows a red banner instead of a silently-dimmed button; distance is the ONLY required field (terrain/elevation stay optional). (4) Terrain display is now REAL: backend returns `terrainDescription` + `terrainTags` computed from the chosen route's surface/park/water tags; app shows them in the preview subtitle, the "Terrain" stat (primary surface, not a chip count), and the summary. (5) Route naming no longer hallucinates: backend reverse-geocodes the start (Mapbox) and builds the name from the real street/neighborhood + actual terrain — no more "Harlem" for a NJ run. NOT done this pass: terrain *influence* on routing and the "Hills" axis (still no elevation data) — separate engine-quality work.)
+
 Last updated: 2026-06-23 (RunView now opens in a walk-to-start phase: the timer/distance stay frozen while the runner walks to the route's first waypoint; the Start button stays locked until within 10 ft of it, then a 5→1 countdown flips to live tracking — so a run no longer starts counting while the runner is still walking to the line. Built as a phase inside RunView, not a separate screen. Coded + builds clean, not yet device-tested. Earlier same day: RunView heading now route-derived via look-ahead bearing instead of GPS `loc.course`)
 
 Source of truth for what the app **actually does right now**, not what it should do.
@@ -46,9 +48,16 @@ overlay on `HomeView`.
 5. **BuildRunView** — distance / terrain / elevation / custom request text fields.
    Sends full `UserProfile` + `customRequest` to backend. Navigates to `RoutePreviewView`
    on success. Has silent `catch` blocks (error UX not yet added here — next item).
+   **Validation (2026-06-26):** distance is the only required field; tapping Generate
+   without it shows a red `distanceErrorBanner` (the button stays tappable-but-dimmed so
+   the tap can fire it), cleared the moment a distance chip/custom value is set. Terrain,
+   elevation and special requests remain optional.
 
 6. **RoutePreviewView** — shows the generated route as a MapKit `MapPolyline` on a
    bounds-fit map. Route name, terrain description, distance, estimated time.
+   **Terrain (2026-06-26):** `terrainDescription` and the "Terrain" stat now reflect the
+   route's REAL terrain from the backend (`terrainTags`), not a hardcoded string and a
+   chip count. The stat shows the primary surface (`route.terrain.first`).
    "Start Run" → `RunView` (which opens in its walk-to-start phase, below).
    "Regenerate" → re-calls `generateRoute` and replaces the route in place. Fires
    `postRouteFeedback("accept")` / `("reject")` on those taps.
@@ -65,7 +74,13 @@ overlay on `HomeView`.
    off? Start anyway" link is the escape hatch so a bad fix can't trap them. Tapping
    Start (or the bypass) runs a 5→1 countdown overlay, then `startRunningPhase()` flips
    to `.running`, anchors `lastCoord` so the walk leg isn't counted, zeroes the
-   clock/odometer, and starts the timer. Approach detection + freezing live in
+   clock/odometer, and starts the timer. **Start gate (2026-06-26):** `unlockRadiusFeet`
+   is now **50 ft**, and `isAtStart` opens at `max(50 ft, live GPS accuracy)` — 10 ft was
+   too tight to ever trip outdoors. **Auto-finish (2026-06-26):** `checkFinish` arms once
+   `passedWaypointIndex ≥ 85%` of the loop; within `finishRadiusFeet` (25 ft) of the last
+   waypoint it sets `showFinishPrompt`, a full-screen overlay with **End Run** (default →
+   `handleStop`) and **Keep running** (latches `finishPromptDismissed` so it won't nag on
+   later laps). Approach detection + freezing live in
    `processLocation`; the EMA smoothing and marker tween are factored into
    `updateSmoothed` / `retargetMarker`, shared by both phases.
    Accumulates distance with `haversineDistanceMiles` (raw GPS). Camera modes:

@@ -32,6 +32,10 @@ private final class RunRef {
     var animStart: CFTimeInterval = 0
     var animDuration: Double = 1.0
     var lastFixTime: CFTimeInterval = 0
+    // Reported horizontal accuracy of the latest fix, in FEET. The start gate
+    // widens to this when GPS is loose so a ±60 ft fix doesn't demand the runner
+    // stand on an exact point they can't actually reach.
+    var lastAccuracyFeet: Double = 0
 
     init(startCoord: CLLocationCoordinate2D, startHeading: Double = 0) {
         lastCoord = startCoord
@@ -92,9 +96,22 @@ struct RunView: View {
     @State private var distanceToStartFeet: Double? = nil
     @State private var countdown: Int? = nil          // 5…1 during the pre-run countdown
     @State private var countdownTask: Task<Void, Never>? = nil
-    // Unlock radius for the start gate. 10 ft ≈ 3 m — tight for consumer GPS, so it's
-    // one named constant; bump to ~25-30 if it won't unlock reliably outdoors.
-    private let unlockRadiusFeet: Double = 10
+    // Base unlock radius for the start gate. 10 ft was too tight to ever trip on real
+    // hardware (consumer GPS is rarely better than ~16 ft, worse among buildings), so
+    // the gate now opens at 50 ft OR the live GPS accuracy, whichever is larger — see
+    // `isAtStart`. The runner only has to be "basically on the line," not standing on
+    // an exact pixel they can't physically find.
+    private let unlockRadiusFeet: Double = 50
+
+    // Finish detection. Once the runner has actually covered the loop and comes back
+    // within this radius of the final waypoint, a "you're done" prompt auto-appears
+    // (handled in `processLocation`). 25 ft is loose enough to trip reliably without
+    // firing the moment they leave, since the start and finish of a loop nearly coincide.
+    private let finishRadiusFeet: Double = 25
+    @State private var showFinishPrompt = false
+    // Latched true if the runner taps "Keep running" on the finish prompt, so it won't
+    // nag them again on later laps — they end manually with the End Run button.
+    @State private var finishPromptDismissed = false
 
     @State private var currentStepIndex = 0
     @State private var passedWaypointIndex = 0
@@ -149,10 +166,13 @@ struct RunView: View {
         return startLocation
     }
 
-    // True once the runner is within the unlock radius of the start.
+    // True once the runner is within the unlock radius of the start. The effective
+    // radius is the larger of our base radius and the phone's own reported accuracy:
+    // if GPS only knows the position to ±70 ft, demanding the runner be within 50 ft is
+    // physically impossible, so the gate widens to match what the hardware can resolve.
     private var isAtStart: Bool {
         guard let d = distanceToStartFeet else { return false }
-        return d <= unlockRadiusFeet
+        return d <= max(unlockRadiusFeet, ref.lastAccuracyFeet)
     }
 
     // Computed here (not inside Map { }) because @MapContentBuilder only accepts
@@ -236,6 +256,10 @@ struct RunView: View {
         // The pre-run countdown sits on top of everything until it flips to .running.
         .overlay {
             if let value = countdown { countdownOverlay(value) }
+        }
+        // The auto-finish prompt sits on top once the runner loops back to the finish.
+        .overlay {
+            if showFinishPrompt { finishPromptOverlay }
         }
         .task { startTracking() }
         .onDisappear { stopTracking() }
@@ -375,6 +399,55 @@ struct RunView: View {
         .animation(.easeOut(duration: 0.25), value: value)
     }
 
+    // Auto-presented when the runner returns to the finish. End Run is the prominent
+    // default (this is "it ends for you"); Keep Running is the escape hatch for anyone
+    // doing extra laps or a cool-down. Keep Running latches `finishPromptDismissed` so
+    // it won't pop again — they finish on the manual End Run button from there.
+    private var finishPromptOverlay: some View {
+        ZStack {
+            Color.black.opacity(0.85).ignoresSafeArea()
+            VStack(spacing: 16) {
+                Image(systemName: "flag.checkered")
+                    .font(.system(size: 56))
+                    .foregroundColor(Color(hex: "#C6F135"))
+                Text("You're back at the finish")
+                    .font(.system(size: 22, weight: .bold))
+                    .foregroundColor(.white)
+                Text("Nice work. End the run, or keep going if you're adding laps.")
+                    .font(.system(size: 14))
+                    .foregroundColor(Color(hex: "#888888"))
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 32)
+
+                Button { handleStop() } label: {
+                    Text("End Run")
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundColor(Color(hex: "#27272D"))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 16)
+                        .background(Color(hex: "#C6F135"))
+                        .cornerRadius(14)
+                }
+                Button {
+                    finishPromptDismissed = true
+                    showFinishPrompt = false
+                } label: {
+                    Text("Keep running")
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                        .background(Color(hex: "#1A1A1A"))
+                        .cornerRadius(14)
+                        .overlay(RoundedRectangle(cornerRadius: 14)
+                            .stroke(Color(hex: "#333333"), lineWidth: 1))
+                }
+            }
+            .padding(.horizontal, 40)
+        }
+        .transition(.opacity)
+    }
+
     // MARK: - Stats panel
 
     private var statsPanel: some View {
@@ -486,6 +559,12 @@ struct RunView: View {
     private func processLocation(_ loc: CLLocation) {
         let coord = loc.coordinate
 
+        // Track GPS accuracy (Core Location reports it in metres; negative = invalid)
+        // so the start gate can widen on a loose fix. ×3.28084 converts metres → feet.
+        if loc.horizontalAccuracy > 0 {
+            ref.lastAccuracyFeet = loc.horizontalAccuracy * 3.28084
+        }
+
         // Approaching-start phase: freeze time/distance, don't snap to the route or
         // advance steps. Track the runner's real position, measure how far they still
         // are from the start, and aim the chevron (and follow-camera) straight at the
@@ -545,6 +624,26 @@ struct RunView: View {
 
         retargetMarker(to: snapped, heading: routeHdg)
         updateStep(coord: coord)
+        checkFinish(smooth)
+    }
+
+    // Auto-finish: once the runner has looped back to the final waypoint, surface a
+    // prompt that ends the run for them (they can override with "Keep running"). We
+    // only arm it after they've covered most of the loop — a loop's finish sits almost
+    // on top of its start, so without the coverage guard this would fire at second one.
+    @MainActor
+    private func checkFinish(_ pos: CLLocationCoordinate2D) {
+        guard !showFinishPrompt, !finishPromptDismissed, !runEnded else { return }
+        guard let last = route.waypoints.last else { return }
+        let lastIdx = route.waypoints.count - 1
+        guard lastIdx > 0,
+              Double(ref.passedWaypointIndex) >= Double(lastIdx) * 0.85 else { return }
+        let feetToFinish = haversineDistanceMiles(
+            pos.latitude, pos.longitude, last.latitude, last.longitude
+        ) * 5280
+        if feetToFinish <= finishRadiusFeet {
+            showFinishPrompt = true
+        }
     }
 
     // Exponential moving average over raw GPS, shared by both phases. Alpha 0.3 keeps

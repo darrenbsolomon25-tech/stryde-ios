@@ -14,6 +14,10 @@ struct BuildRunView: View {
     @State private var selectedElevation = "flat"
     @State private var customRequest = ""
     @State private var loading = false
+    // Flips true if the runner taps Generate without picking a distance — drives the
+    // red "pick a distance" banner. Distance is the ONLY required field; terrain,
+    // elevation and special requests are all optional, so nothing else gates this.
+    @State private var showDistanceError = false
 
     @State private var generatedRoute: GeneratedRoute? = nil
     @State private var routeCoord: CLLocationCoordinate2D? = nil
@@ -57,7 +61,10 @@ struct BuildRunView: View {
                     options: quickDistances,
                     selected: Binding(
                         get: { selectedDistance },
-                        set: { selectedDistance = $0; if $0 != nil { customDistance = "" } }
+                        set: {
+                            selectedDistance = $0
+                            if $0 != nil { customDistance = ""; showDistanceError = false }
+                        }
                     )
                 )
                 // Custom distance text field mixed in with the chips
@@ -70,7 +77,10 @@ struct BuildRunView: View {
                     .padding(.vertical, 10)
                     .background(customDistance.isEmpty ? Color(hex: "#1A1A1A") : Color(hex: "#C6F135"))
                     .cornerRadius(12)
-                    .onChange(of: customDistance) { _, _ in selectedDistance = nil }
+                    .onChange(of: customDistance) { _, newValue in
+                        selectedDistance = nil
+                        if !newValue.isEmpty { showDistanceError = false }
+                    }
                     .padding(.bottom, 20)
 
                 buildLabel("Terrain")
@@ -108,7 +118,19 @@ struct BuildRunView: View {
                     )
                     .padding(.bottom, 24)
 
+                // Red validation banner — shown only after a tap with no distance set.
+                if showDistanceError {
+                    distanceErrorBanner
+                }
+
                 Button {
+                    // Distance is the only requirement. If it's missing, surface the red
+                    // banner instead of silently doing nothing, and don't call the API.
+                    guard canGenerate else {
+                        withAnimation { showDistanceError = true }
+                        return
+                    }
+                    showDistanceError = false
                     Task { await handleGenerate() }
                 } label: {
                     Group {
@@ -130,7 +152,9 @@ struct BuildRunView: View {
                     .background(Color(hex: "#C6F135").opacity(canGenerate && !loading ? 1 : 0.3))
                     .cornerRadius(16)
                 }
-                .disabled(!canGenerate || loading)
+                // Only blocked while a request is in flight. When distance is missing the
+                // button stays tappable (dimmed) so the tap can trigger the red banner.
+                .disabled(loading)
             }
             .padding(.horizontal, 20)
             .padding(.top, 16)
@@ -257,6 +281,22 @@ struct BuildRunView: View {
     }
 
     // MARK: - Sub-views
+
+    // Pulled out of `body` so the main view builder stays small and fast to type-check.
+    private var distanceErrorBanner: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+            Text("Pick a distance first — it's the one thing we need to build your route.")
+        }
+        .font(.system(size: 13, weight: .semibold))
+        .foregroundColor(Color(hex: "#FF3B30"))
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .background(Color(hex: "#FF3B30").opacity(0.12))
+        .cornerRadius(12)
+        .padding(.bottom, 12)
+        .transition(.opacity)
+    }
 
     private func buildLabel(_ text: String) -> some View {
         Text(text)

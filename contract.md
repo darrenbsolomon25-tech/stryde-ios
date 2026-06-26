@@ -52,11 +52,13 @@ Requires `Authorization: Bearer <token>`.
 |----------------|----------|-------|
 | `waypoints`    | `{ lat, lng }[]` | full polyline |
 | `steps`        | `Step[]` | turn-by-turn maneuvers (shape below). May be empty. |
-| `name`         | string   | Claude-generated route name |
+| `name`         | string   | route name. v2: built from a Mapbox reverse-geocode of the start + the route's real terrain (no LLM). v1: still Claude-generated. |
+| `terrainDescription` | string / null | v2 only. One-sentence description of the route's ACTUAL terrain, e.g. `"Paved streets, along the water."` Absent on v1/fallback. |
+| `terrainTags`  | string[] / null  | v2 only. Short terrain chips from the real route, e.g. `["Paved","Waterfront"]`. Absent on v1/fallback. |
 | `distanceKm`   | number   | actual routed distance, 2 dp |
 | `score`        | number   | internal; not for display |
-| `valid`        | boolean  | Claude yes/no on geometry |
-| `reason`       | string   | Claude's reason when `valid=false` |
+| `valid`        | boolean  | geometry validity. v2 always `true` (hard gates decide); v1 is Claude's yes/no. |
+| `reason`       | string   | reason string; populated when `valid=false` (v1). |
 | `routeType`    | string   | echo of request |
 | `requestId`    | string / null | UUID for this v2 request; send back in `POST /route-feedback`. null for v1 routes. |
 | `engine`       | `"v1"` / `"v2"` / `"v1-fallback"` | which engine produced the route |

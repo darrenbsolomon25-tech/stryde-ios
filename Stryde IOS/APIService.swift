@@ -252,6 +252,11 @@ class APIService {
             var steps: [RawStep]?
             var requestId: String?
             var suggestedStart: SuggestedStart?
+            // v2 now reports the route's ACTUAL terrain (computed from the chosen
+            // path's surface + park/water tags), instead of the app echoing the
+            // user's chips back. Optional so older/v1 responses still decode.
+            var terrainDescription: String?
+            var terrainTags: [String]?
         }
         struct RawStep: Decodable {
             var instruction: String
@@ -291,12 +296,17 @@ class APIService {
 
         let route = GeneratedRoute(
             routeName: raw.name ?? "Your Route",
-            terrainDescription: "A \(String(format: "%.1f", distanceMiles))-mile loop near you.",
+            // Prefer the backend's real terrain description; fall back to the old
+            // generic line only when it's absent (v1 / fallback routes).
+            terrainDescription: raw.terrainDescription
+                ?? "A \(String(format: "%.1f", distanceMiles))-mile loop near you.",
             totalDistance: "\(String(format: "%.1f", distanceMiles)) miles",
             estimatedTime: "\(estimatedMinutes) minutes",
             waypoints: waypoints,
             steps: steps,
-            terrain: profile?.terrain ?? [],
+            // The route's actual terrain tags (e.g. ["Paved","Waterfront"]). Falls back
+            // to the user's selected chips if the backend didn't send any.
+            terrain: raw.terrainTags ?? (profile?.terrain ?? []),
             requestId: raw.requestId
         )
         return .route(route)

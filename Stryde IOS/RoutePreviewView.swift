@@ -104,7 +104,9 @@ struct RoutePreviewView: View {
                     statCell(value: route.estimatedTime, label: "Est. Time")
                     Divider().frame(height: 30).background(Color(hex: "#333333"))
                     statCell(
-                        value: route.terrain.isEmpty ? "—" : "\(route.terrain.count)",
+                        // The route's actual primary terrain (e.g. "Paved"), not a
+                        // count of how many chips were tapped.
+                        value: route.terrain.first ?? "—",
                         label: "Terrain"
                     )
                 }
