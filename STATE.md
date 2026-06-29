@@ -150,7 +150,7 @@ seeded fake profile.
 - **How to turn it on:** Xcode → Product → Scheme → Edit Scheme → Run →
   Arguments → "Arguments Passed On Launch" → add `-StrydeAuthBypass` (tick it).
   Untick to return to the real Clerk flow. (CLI equivalent:
-  `xcrun simctl launch <udid> com.runstryde.Stryde-IOS -StrydeAuthBypass`.)
+  `xcrun simctl launch <udid> com.runstryde.app -StrydeAuthBypass`.)
 - **What it does:** `AppState.authBypassEnabled` (in `AppState.swift`) reads that
   launch arg; when set, `AppState.init` calls `enableDebugSession()` which seeds a
   complete `userProfile`, sets `hasProfile = true` and `bootDone = true`.
