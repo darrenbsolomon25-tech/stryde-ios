@@ -85,19 +85,19 @@ struct OnboardingView: View {
 
     private var welcomeStep: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("YOUR AI RUNNING COACH")
+            Text("YOUR AI ROUTE COACH")
                 .font(.system(size: 12, weight: .bold))
                 .foregroundColor(Color(hex: "#C6F135"))
                 .kerning(3)
                 .padding(.bottom, 24)
 
-            Text("Run smarter.\nEvery time.")
+            Text("Move smarter.\nEvery time.")
                 .font(.system(size: 48, weight: .bold))
                 .foregroundColor(.white)
                 .lineSpacing(4)
                 .padding(.bottom, 24)
 
-            Text("We learn how you run, what you love, and build the perfect route — every single time.")
+            Text("We learn how you move and what you love, then build the perfect route, every single time.")
                 .font(.system(size: 16))
                 .foregroundColor(Color(hex: "#888888"))
                 .lineSpacing(6)
