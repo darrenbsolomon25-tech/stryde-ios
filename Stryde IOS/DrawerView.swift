@@ -29,7 +29,7 @@ struct DrawerView: View {
 
             // Close drawer first, then flip the flag that HomeView watches.
             // HomeView uses .navigationDestination(isPresented:) to push the screen.
-            drawerItem("Run History") {
+            drawerItem("History") {
                 withAnimation(.easeInOut(duration: 0.2)) { appState.drawerOpen = false }
                 // Small delay lets the drawer close animation finish before pushing.
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {

@@ -18,6 +18,8 @@ struct OnboardingView: View {
     @State private var terrain: [String] = []
     @State private var preferredDistance = ""
     @State private var goals: [String] = []
+    // Run / walk / both. Defaults to .both; persisted to AppState in finish().
+    @State private var activityMode: ActivityMode = .both
 
     @State private var saving = false
 
@@ -150,6 +152,17 @@ struct OnboardingView: View {
                     fitnessLevel = level
                 }
             }
+
+            Spacer().frame(height: 28)
+            // Run / walk / both. Sets the app's default activity + on-screen
+            // language; only "both" shows a Run/Walk toggle on the generate screens.
+            fieldLabel("Are you here to…")
+            ForEach(ActivityMode.allCases, id: \.self) { mode in
+                cardButton(mode.label, selected: activityMode == mode) {
+                    activityMode = mode
+                }
+            }
+
             Spacer().frame(height: 32)
             actionButton("Continue", enabled: canContinue) { advance() }
         }
@@ -236,6 +249,13 @@ struct OnboardingView: View {
         // Save locally immediately so the app works offline
         AppState.shared.saveProfile(profile)
         AppState.shared.userProfile = profile
+
+        // Persist the run/walk/both choice (local-only). For a single-mode user,
+        // also seed selectedActivity so it's coherent from the first generate.
+        AppState.shared.activityMode = activityMode
+        if activityMode != .both {
+            AppState.shared.selectedActivity = (activityMode == .walk ? .walk : .run)
+        }
 
         // Sync preferences to backend fire-and-forget — same pattern as RN
         Task {

@@ -7,14 +7,24 @@ struct RunHistoryView: View {
     private var totalMiles: Double { appState.localRuns.reduce(0) { $0 + $1.distance } }
     private var totalSeconds: Int { appState.localRuns.reduce(0) { $0 + $1.duration } }
 
+    // The lifetime count is combined (runs + walks); only its label adapts so it
+    // never calls a walk a "run". Splitting the totals by activity is deferred.
+    private var historyCountLabel: String {
+        switch appState.activityMode {
+        case .run:  return "Runs"
+        case .walk: return "Walks"
+        case .both: return "Activities"
+        }
+    }
+
     var body: some View {
         Group {
             if appState.localRuns.isEmpty {
                 VStack(spacing: 12) {
-                    Text("No runs yet.")
+                    Text("Nothing logged yet.")
                         .font(.system(size: 18, weight: .bold))
                         .foregroundColor(.white)
-                    Text("Your completed runs will show up here.")
+                    Text("Your completed runs and walks will show up here.")
                         .font(.system(size: 14))
                         .foregroundColor(Color(hex: "#888888"))
                         .multilineTextAlignment(.center)
@@ -54,7 +64,7 @@ struct RunHistoryView: View {
             }
         }
         .background(Color(hex: "#27272D").ignoresSafeArea())
-        .navigationTitle("Run History")
+        .navigationTitle("History")
         .navigationBarTitleDisplayMode(.large)
         .toolbarColorScheme(.dark, for: .navigationBar)
     }
@@ -62,7 +72,7 @@ struct RunHistoryView: View {
     // Lifetime stats card pinned above the run list.
     private var summaryHeader: some View {
         HStack {
-            summaryStat(value: "\(appState.localRuns.count)", label: "Runs")
+            summaryStat(value: "\(appState.localRuns.count)", label: historyCountLabel)
             Divider().frame(height: 34).background(Color(hex: "#333333"))
             summaryStat(value: String(format: "%.1f", totalMiles), label: "Total mi")
             Divider().frame(height: 34).background(Color(hex: "#333333"))
@@ -106,6 +116,16 @@ struct RunHistoryView: View {
                     .foregroundColor(Color(hex: "#888888"))
             }
             HStack(spacing: 6) {
+                // Run/walk badge so the list shows which each entry was. Legacy
+                // records (saved before this field) read as a run via activityKind.
+                Image(systemName: run.activityKind.symbol)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(Color(hex: "#888888"))
+                Text(run.activityKind.noun)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(Color(hex: "#888888"))
+                Text("•")
+                    .foregroundColor(Color(hex: "#555555"))
                 Text(String(format: "%.2f mi", run.distance))
                     .font(.system(size: 14, weight: .medium))
                     .foregroundColor(Color(hex: "#C6F135"))

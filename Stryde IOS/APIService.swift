@@ -57,6 +57,10 @@ struct GeneratedRoute {
     var steps: [Step]
     var terrain: [String]
     var requestId: String?
+    // What this route was generated as. Defaults to `.run` so every existing
+    // construction site still compiles; the run flow reads it to pick wording
+    // ("Start Run" vs "Start Walk") and to stamp the saved LocalRun.
+    var activity: ActivityKind = .run
 }
 
 struct SuggestedStart: Codable {
@@ -79,6 +83,9 @@ struct GenParams {
     var distance: String
     var customRequest: String?
     var routeType: String
+    // Carried so "Regenerate" re-asks for the same activity — a walk stays a
+    // walk on regenerate instead of silently becoming a run.
+    var activity: ActivityKind = .run
 }
 
 // MARK: - APIService
@@ -210,7 +217,8 @@ class APIService {
         distanceMiles: Double,
         customRequest: String? = nil,
         routeType: String = "loop",
-        previousRequestId: String? = nil
+        previousRequestId: String? = nil,
+        activity: ActivityKind = .run
     ) async throws -> RouteResult {
         #if DEBUG
         // DEBUG auth-bypass: there's no Clerk token in bypass mode, so the real
@@ -219,7 +227,7 @@ class APIService {
         if AppState.authBypassEnabled {
             return .route(Self.cannedRoute(
                 latitude: latitude, longitude: longitude,
-                distanceMiles: distanceMiles, profile: profile))
+                distanceMiles: distanceMiles, profile: profile, activity: activity))
         }
         #endif
 
@@ -239,7 +247,11 @@ class APIService {
             "lat": latitude,
             "lng": longitude,
             "distanceKm": distanceKm,
-            "routeType": routeType
+            "routeType": routeType,
+            // Tells the backend to apply the walk overlay + start-from-door, and
+            // gets logged so a walk reranker can be trained later. `.rawValue`
+            // turns the enum into its "run"/"walk" string for JSON.
+            "activity": activity.rawValue
         ]
         if let cr = customRequest { body["customRequest"] = cr }
         if let pb = profileBody { body["profile"] = pb }
@@ -276,8 +288,16 @@ class APIService {
             return .suggestedStart(suggested)
         }
 
-        let fitnessLevel = profile?.fitnessLevel ?? "Beginner"
-        let pace = fitnessLevel == "Advanced" ? 8.0 : fitnessLevel == "Intermediate" ? 10.0 : 13.0
+        // Minutes-per-mile used only for the displayed ETA. A walk is paced at a
+        // steady ~3 mph (20 min/mile) regardless of fitness; a run scales with
+        // the runner's level.
+        let pace: Double
+        if activity == .walk {
+            pace = 20.0
+        } else {
+            let fitnessLevel = profile?.fitnessLevel ?? "Beginner"
+            pace = fitnessLevel == "Advanced" ? 8.0 : fitnessLevel == "Intermediate" ? 10.0 : 13.0
+        }
         let estimatedMinutes = Int(distanceMiles * pace)
 
         let waypoints = (raw.waypoints ?? []).map {
@@ -307,7 +327,8 @@ class APIService {
             // The route's actual terrain tags (e.g. ["Paved","Waterfront"]). Falls back
             // to the user's selected chips if the backend didn't send any.
             terrain: raw.terrainTags ?? (profile?.terrain ?? []),
-            requestId: raw.requestId
+            requestId: raw.requestId,
+            activity: activity
         )
         return .route(route)
     }
@@ -321,7 +342,8 @@ class APIService {
         latitude: Double,
         longitude: Double,
         distanceMiles: Double,
-        profile: UserProfile?
+        profile: UserProfile?,
+        activity: ActivityKind = .run
     ) -> GeneratedRoute {
         let distanceMeters = distanceMiles * 1609.34
         let radiusM = distanceMeters / (2 * Double.pi)         // perimeter ≈ requested distance
@@ -356,16 +378,18 @@ class APIService {
         }
 
         let fitness = profile?.fitnessLevel ?? "Intermediate"
-        let pace = fitness == "Advanced" ? 8.0 : fitness == "Intermediate" ? 10.0 : 13.0
+        let pace = activity == .walk ? 20.0
+            : (fitness == "Advanced" ? 8.0 : fitness == "Intermediate" ? 10.0 : 13.0)
         return GeneratedRoute(
-            routeName: "Debug Test Loop",
-            terrainDescription: "Canned \(String(format: "%.1f", distanceMiles))-mile loop (offline bypass).",
+            routeName: activity == .walk ? "Debug Test Walk" : "Debug Test Loop",
+            terrainDescription: "Canned \(String(format: "%.1f", distanceMiles))-mile \(activity.noun.lowercased()) (offline bypass).",
             totalDistance: "\(String(format: "%.1f", distanceMiles)) miles",
             estimatedTime: "\(Int(distanceMiles * pace)) minutes",
             waypoints: waypoints,
             steps: steps,
             terrain: profile?.terrain ?? [],
-            requestId: nil
+            requestId: nil,
+            activity: activity
         )
     }
     #endif

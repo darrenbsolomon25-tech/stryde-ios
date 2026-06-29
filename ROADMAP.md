@@ -1,12 +1,12 @@
 # Stryde iOS roadmap
 
-Last updated: 2026-05-24
+Last updated: 2026-06-29
 
 ---
 
 ## What we're building
 
-Stryde is a loop route generator. The bet: open the app, say what you want (or just pick a distance), and get a genuinely good loop from wherever you are — the right terrain, the right difficulty, real turn-by-turn navigation home. 30 seconds from open to running.
+Stryde is a run **and walk** loop route generator. The bet: open the app, pick run or walk, say what you want (or just pick a distance/time), and get a genuinely good loop from wherever you are — the right terrain, the right difficulty, real turn-by-turn navigation home. 30 seconds from open to moving.
 
 The differentiator is not social features, a community marketplace, or weather widgets. It's that the generator is actually good. Routes that match your preferences for real. Natural language requests that change the actual route, not just the name it gets called. A system that learns from your runs over time.
 
@@ -34,7 +34,13 @@ of swallowing them silently. Matches the HomeView pattern exactly.
 
 ---
 
-## B. 🏛 RunView GPS validation on device [START A NEW CHAT]
+## B. ✅ RunView GPS validation on device — DONE 2026-06-29
+
+First real outdoor run went well ("fire" — Darren). Core GPS tracking, distance
+accumulation, and the live run flow are confirmed on a physical device. NOTE: that run
+was on a **pre-`wip-migration`** build, so the `wip-migration` changes (Waze 60fps marker,
+save-on-stop) are validated by inheritance only where they overlap — the Waze motion + the
+save-on-stop path still want one more confirming run. Original goal text retained below.
 
 **Goal:** RunView code is written but has never been confirmed working on a real device
 with real GPS movement. Needs an actual outdoor run test.
@@ -261,12 +267,49 @@ App Store — TestFlight is for finding out if it is).
 
 ---
 
+## K. ✅ Run + Walk mode — DONE 2026-06-29 (pending on-device verify)
+
+Stryde now generates walks as well as runs. Built on branch `walk-mode` (iOS off
+`wip-migration`, backend off `main`).
+
+**App:**
+- Onboarding asks run / walk / both (fitness step); editable later in Settings. Stored
+  local-only in UserDefaults (`AppState.activityMode` / `selectedActivity`).
+- A required Run/Walk choice on every generation: a toggle on Quick Run + Build (shown
+  only to "both" users; run-only / walk-only is fixed by their mode). `effectiveActivity`
+  is sent; a "both" user's last pick is sticky.
+- Walks are entered in **minutes** (converted at ~3 mph via `milesFromDisplay`); runs in miles.
+- `activity` rides the whole flow (HomeView/BuildRun → `/generate-route` → `GeneratedRoute`
+  → RunView → RunSummary → `LocalRun`) and is stamped on the saved run; history shows a
+  per-row run/walk badge. Regenerate preserves it. Wording follows the activity.
+
+**Backend (the actual route difference):**
+- New `route/v2/preferences/activity.js`: walk overlay floors `quiet` + avoid-arterials
+  (+ mild anti-stairs). Deliberately does NOT floor leafy/waterfront — parks/water are
+  footways, so a quiet preference picks them up opportunistically without forcing detours.
+  Runs untouched. Applied after `parseIntent`, before search.
+- **Walks start at the door:** the three `suggestedStart` relocations are suppressed for
+  walks; on any v2 failure the dispatcher serves a v1 loop at the current location.
+- **Reranker bypass:** walks rank on the deterministic score (the reranker is run-trained);
+  `activity` is logged to `routes.jsonl` so a walk model can be trained later.
+
+**Verified:** backend route-engine suite (5/23) + a run-vs-walk generation check on the
+Manhattan disk graph. iOS compiles by inspection only — **needs an Xcode build + Railway
+deploy + an on-device run/walk eyeball in a scenic-rich spot**.
+
+**Deferred:** walk reranker model (no data yet), activity-split lifetime totals,
+proactive run-relocation, elevation/hilly (item F), App Store copy.
+
+---
+
 ## Parking lot
 
 These are not on the roadmap. They may happen after J if the core generator is proven.
 
 - **Custom start location** — pick a start somewhere other than your GPS. Valid, not urgent.
-- **Landmarks mode** — run past famous places. Good idea, needs the graph + NL foundation from F and G first.
+- **Landmarks mode** — *route* past famous places. NB the v2 engine already tags + scores
+  landmark/park/water nodes (used opportunistically by walk mode); this item is now just
+  about *emphasizing* discrete landmarks, which needs data-quality tuning (sparse/noisy).
 - **Trip mode** — routes for upcoming travel. Blocked on landmarks being solid.
 - **Manual route editor** — drag waypoints. Power user feature, not the core use case.
 - **Weather / AQI widget** — doesn't make the route better.

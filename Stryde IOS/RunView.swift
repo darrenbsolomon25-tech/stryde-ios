@@ -150,6 +150,10 @@ struct RunView: View {
         )))
     }
 
+    // Run vs walk, carried by the route. Drives the on-screen wording ("Start
+    // Walk", "End Walk") and is stamped onto the saved LocalRun in handleStop().
+    private var activity: ActivityKind { route.activity }
+
     private var nextStep: Step? {
         let nextIdx = currentStepIndex + 1
         guard route.steps.indices.contains(nextIdx) else { return nil }
@@ -344,7 +348,7 @@ struct RunView: View {
             Button {
                 if isAtStart { beginRun() }
             } label: {
-                Text(isAtStart ? "Start Run" : "Walk to the start to unlock")
+                Text(isAtStart ? "Start \(activity.noun)" : "Walk to the start to unlock")
                     .font(.system(size: 16, weight: .bold))
                     .foregroundColor(isAtStart ? Color(hex: "#27272D") : Color(hex: "#888888"))
                     .frame(maxWidth: .infinity)
@@ -413,14 +417,14 @@ struct RunView: View {
                 Text("You're back at the finish")
                     .font(.system(size: 22, weight: .bold))
                     .foregroundColor(.white)
-                Text("Nice work. End the run, or keep going if you're adding laps.")
+                Text("Nice work. End the \(activity.noun.lowercased()), or keep going if you're adding laps.")
                     .font(.system(size: 14))
                     .foregroundColor(Color(hex: "#888888"))
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 32)
 
                 Button { handleStop() } label: {
-                    Text("End Run")
+                    Text("End \(activity.noun)")
                         .font(.system(size: 16, weight: .bold))
                         .foregroundColor(Color(hex: "#27272D"))
                         .frame(maxWidth: .infinity)
@@ -481,7 +485,7 @@ struct RunView: View {
                                 .stroke(!isRunning ? Color(hex: "#C6F135") : Color(hex: "#333333"), lineWidth: 1))
                     }
                     Button { handleStop() } label: {
-                        Text("End Run")
+                        Text("End \(activity.noun)")
                             .font(.system(size: 15, weight: .bold))
                             .foregroundColor(.white)
                             .frame(maxWidth: .infinity).padding(.vertical, 14)
@@ -891,7 +895,10 @@ struct RunView: View {
             date: ISO8601DateFormatter().string(from: Date()),
             // The covered portion of the planned route, so RunSummaryView (and Run
             // History later) draws how far along the loop the runner actually got.
-            waypoints: coveredWaypoints
+            waypoints: coveredWaypoints,
+            // Stamp run vs walk onto the saved record so history can show which
+            // is which and stats can be split later.
+            activity: route.activity
         )
         // Persist the instant the run ends — not as a side effect of the summary
         // screen appearing. Decoupling the save from view lifecycle means a run is

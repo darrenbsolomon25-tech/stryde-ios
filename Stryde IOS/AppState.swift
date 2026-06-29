@@ -1,6 +1,24 @@
 import Foundation
 import ClerkKit
 
+// ActivityMode is the user's onboarding-level choice: do they run, walk, or
+// both. It sets the app's default activity and on-screen language; a "both"
+// user is the only one who ever sees a Run/Walk toggle on the generate screens.
+// `: String` gives each case a raw string so we can store it in UserDefaults;
+// `CaseIterable` auto-generates `.allCases` so the onboarding/settings pickers
+// can list every option without hardcoding them. Stored locally only.
+enum ActivityMode: String, Codable, CaseIterable {
+    case run, walk, both
+
+    var label: String {
+        switch self {
+        case .run:  return "Run"
+        case .walk: return "Walk"
+        case .both: return "Both"
+        }
+    }
+}
+
 // @Observable replaces ObservableObject — any view that reads a property here
 // will automatically re-render when that property changes. No @Published needed.
 @Observable
@@ -8,6 +26,7 @@ import ClerkKit
 class AppState {
     static let shared = AppState()
     private init() {
+        loadActivityPrefs()
         #if DEBUG
         // When the "-StrydeAuthBypass" launch arg is set on the scheme, seed a
         // fake signed-in session before the first frame renders. See the
@@ -42,6 +61,34 @@ class AppState {
 
     // Local run history (miles + pace shape, not the backend km shape)
     var localRuns: [LocalRun] = []
+
+    // MARK: - Activity (run / walk)
+    //
+    // `activityMode` is the onboarding choice; `selectedActivity` is the current
+    // run/walk pick a "both" user toggles. Each persists in its `didSet` — a
+    // property observer that runs right after the value changes — so the choice
+    // survives app launches. (`@Observable` still tracks these for view updates;
+    // the observer is just for persistence.) `effectiveActivity` is what the
+    // generate screens actually send.
+    var activityMode: ActivityMode = .both {
+        didSet { UserDefaults.standard.set(activityMode.rawValue, forKey: Self.activityModeKey) }
+    }
+    var selectedActivity: ActivityKind = .run {
+        didSet { UserDefaults.standard.set(selectedActivity.rawValue, forKey: Self.lastActivityKey) }
+    }
+
+    /// The activity to generate with right now: fixed for run-only / walk-only
+    /// users, the sticky toggle value for "both".
+    var effectiveActivity: ActivityKind {
+        switch activityMode {
+        case .run:  return .run
+        case .walk: return .walk
+        case .both: return selectedActivity
+        }
+    }
+
+    /// Only "both" users choose per route, so only they see the toggle.
+    var showsActivityToggle: Bool { activityMode == .both }
 
     // MARK: - Navigation
 
@@ -178,6 +225,24 @@ class AppState {
     private let profileKey = "userProfile"
     private let runsKey = "runHistory"
     private let localRunsKey = "localRunHistory"
+    // Static so the `didSet` observers on activityMode / selectedActivity (which
+    // run before instance setup is "done") can reference them via `Self.`.
+    private static let activityModeKey = "activityMode"
+    private static let lastActivityKey = "lastActivity"
+
+    /// Restore the saved activity preferences at launch. Called from init; the
+    /// defaults (.both / .run) stand in until a value is found, so a brand-new
+    /// or pre-feature install behaves as "both, defaulting to run".
+    private func loadActivityPrefs() {
+        if let raw = UserDefaults.standard.string(forKey: Self.activityModeKey),
+           let mode = ActivityMode(rawValue: raw) {
+            activityMode = mode
+        }
+        if let raw = UserDefaults.standard.string(forKey: Self.lastActivityKey),
+           let act = ActivityKind(rawValue: raw) {
+            selectedActivity = act
+        }
+    }
 
     func saveProfile(_ profile: UserProfile) {
         if let data = try? JSONEncoder().encode(profile) {

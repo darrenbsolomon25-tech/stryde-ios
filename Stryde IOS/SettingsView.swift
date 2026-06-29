@@ -26,6 +26,7 @@ struct SettingsView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 8) {
+                activitySection
                 personalSection
                 skillSection
                 terrainSection
@@ -106,6 +107,24 @@ struct SettingsView: View {
                 "Personal info",
                 summary: Clerk.shared.user?.primaryEmailAddress?.emailAddress ?? "Tap to view"
             )
+        }
+        .settingsSection()
+    }
+
+    private var activitySection: some View {
+        DisclosureGroup {
+            VStack(spacing: 8) {
+                ForEach(ActivityMode.allCases, id: \.self) { mode in
+                    settingsCard(mode.label, selected: appState.activityMode == mode) {
+                        appState.activityMode = mode
+                        // Keep the per-route pick coherent with a single-mode choice.
+                        if mode != .both { appState.selectedActivity = (mode == .walk ? .walk : .run) }
+                    }
+                }
+            }
+            .padding(.bottom, 8)
+        } label: {
+            sectionHeader("Activity", summary: appState.activityMode.label)
         }
         .settingsSection()
     }

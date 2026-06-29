@@ -121,7 +121,7 @@ struct RoutePreviewView: View {
                     Task { try? await APIService.shared.postRouteFeedback(requestId: route.requestId, event: "accept") }
                     navigateToRun = true
                 } label: {
-                    Text("Start Run")
+                    Text("Start \(route.activity.noun)")
                         .font(.system(size: 16, weight: .bold))
                         .foregroundColor(Color(hex: "#27272D"))
                         .frame(maxWidth: .infinity)
@@ -177,10 +177,11 @@ struct RoutePreviewView: View {
                 profile: genParams.profile,
                 latitude: location.latitude,
                 longitude: location.longitude,
-                distanceMiles: parseMiles(genParams.distance),
+                distanceMiles: milesFromDisplay(genParams.distance, activity: genParams.activity),
                 customRequest: genParams.customRequest,
                 routeType: genParams.routeType,
-                previousRequestId: route.requestId
+                previousRequestId: route.requestId,
+                activity: genParams.activity
             )
             if case .route(let newRoute) = result {
                 route = newRoute

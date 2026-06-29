@@ -42,7 +42,7 @@ struct RunSummaryView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 6) {
-                Text("RUN COMPLETE")
+                Text("\(run.activityKind.noun.uppercased()) COMPLETE")
                     .font(.system(size: 12, weight: .bold))
                     .foregroundColor(Color(hex: "#C6F135"))
                     .kerning(3)

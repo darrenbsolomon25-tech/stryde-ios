@@ -28,8 +28,15 @@ struct HomeView: View {
 
     private var appState = AppState.shared
 
-    // Distance options adjust to the user's fitness level, same as the RN app.
+    // The activity to generate with (run / walk), and its input unit. Walks are
+    // entered in minutes (converted to a distance at ~3 mph); runs in miles.
+    private var activity: ActivityKind { appState.effectiveActivity }
+    private var distanceUnit: String { activity == .walk ? "min" : "mi" }
+
+    // Quick-pick options. Walks offer time presets; runs offer mile presets that
+    // scale with the user's fitness level, same as the RN app.
     private var quickDistances: [String] {
+        if activity == .walk { return ["20 min", "30 min", "45 min", "60 min"] }
         switch appState.userProfile?.fitnessLevel {
         case "Advanced": return ["3 mi", "5 mi", "8 mi"]
         case "Intermediate": return ["2 mi", "3 mi", "5 mi"]
@@ -64,9 +71,10 @@ struct HomeView: View {
                     location: routeSnappedCoord ?? coordinate ?? CLLocationCoordinate2D(),
                     genParams: GenParams(
                         profile: appState.userProfile,
-                        distance: selectedDistance ?? (customDistance + " mi"),
+                        distance: selectedDistance ?? (customDistance + " " + distanceUnit),
                         customRequest: nil,
-                        routeType: "loop"
+                        routeType: "loop",
+                        activity: activity
                     )
                 )
             }
@@ -127,7 +135,7 @@ struct HomeView: View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {
                 // Clerk gives us the signed-in user's first name.
-                Text("Good run, \(Clerk.shared.user?.firstName ?? "Runner")")
+                Text("Good \(activity.noun.lowercased()), \(Clerk.shared.user?.firstName ?? "there")")
                     .font(.system(size: 24, weight: .bold))
                     .foregroundColor(.white)
                 Text("Where are we going today?")
@@ -183,8 +191,23 @@ struct HomeView: View {
     private var bottomPanel: some View {
         VStack(spacing: 8) {
             if quickRunActive {
-                // DISTANCE PICKER — shown after tapping Quick Run
-                Text("PICK YOUR DISTANCE")
+                // Run/Walk toggle — only "both" users pick per route. Flipping it
+                // clears the current pick since the unit changes (miles ↔ minutes).
+                if appState.showsActivityToggle {
+                    Picker("Activity", selection: Bindable(appState).selectedActivity) {
+                        Text("Run").tag(ActivityKind.run)
+                        Text("Walk").tag(ActivityKind.walk)
+                    }
+                    .pickerStyle(.segmented)
+                    .padding(.bottom, 4)
+                    .onChange(of: appState.selectedActivity) { _, _ in
+                        selectedDistance = nil
+                        customDistance = ""
+                    }
+                }
+
+                // DISTANCE / TIME PICKER — shown after tapping Quick Run
+                Text(activity == .walk ? "PICK YOUR TIME" : "PICK YOUR DISTANCE")
                     .font(.system(size: 12, weight: .medium))
                     .foregroundColor(Color(hex: "#888888"))
                     .kerning(1.5)
@@ -213,7 +236,7 @@ struct HomeView: View {
                         .disabled(loading)
                     }
                     // Free-type custom distance field
-                    TextField("mi", text: $customDistance)
+                    TextField(distanceUnit, text: $customDistance)
                         .keyboardType(.decimalPad)
                         .multilineTextAlignment(.center)
                         .font(.system(size: 14, weight: .medium))
@@ -225,7 +248,7 @@ struct HomeView: View {
                         .onSubmit {
                             if !customDistance.isEmpty {
                                 selectedDistance = nil
-                                Task { await handleQuickRun(distance: customDistance + " mi") }
+                                Task { await handleQuickRun(distance: customDistance + " " + distanceUnit) }
                             }
                         }
                 }
@@ -241,7 +264,7 @@ struct HomeView: View {
                 Button {
                     if coordinate != nil { quickRunActive = true }
                 } label: {
-                    Text("Quick Run")
+                    Text("Quick \(activity.noun)")
                         .font(.system(size: 16, weight: .bold))
                         .foregroundColor(Color(hex: "#27272D"))
                         .frame(maxWidth: .infinity)
@@ -254,7 +277,7 @@ struct HomeView: View {
                 Button {
                     if coordinate != nil { appState.showBuildRun = true }
                 } label: {
-                    Text("Build My Run")
+                    Text("Build My \(activity.noun)")
                         .font(.system(size: 16, weight: .bold))
                         .foregroundColor(.white)
                         .frame(maxWidth: .infinity)
@@ -278,14 +301,15 @@ struct HomeView: View {
         defer { loading = false }
 
         do {
-            let miles = parseMiles(distance)
+            let miles = milesFromDisplay(distance, activity: activity)
             let result = try await APIService.shared.generateRoute(
                 profile: appState.userProfile,
                 latitude: coord.latitude,
                 longitude: coord.longitude,
                 distanceMiles: miles,
                 customRequest: nil,
-                routeType: "loop"
+                routeType: "loop",
+                activity: activity
             )
             switch result {
             case .suggestedStart(let suggestion):
@@ -297,7 +321,9 @@ struct HomeView: View {
                 let snapDist = w0.map {
                     haversineDistanceMiles(coord.latitude, coord.longitude, $0.latitude, $0.longitude) * 1609.34
                 } ?? 0
-                if snapDist > 150, let w0 {
+                // Walks start at the door — never show the "walk to your start"
+                // prompt for them. Only a run offers to relocate to a cleaner start.
+                if snapDist > 150, activity == .run, let w0 {
                     let dir = bearingCardinal(coord.latitude, coord.longitude, w0.latitude, w0.longitude)
                     routeSnappedCoord = coord
                     snapMessage = "Walk ~\(Int(snapDist))m \(dir) to reach your starting point."
@@ -320,14 +346,15 @@ struct HomeView: View {
         loading = true
         defer { loading = false }
         do {
-            let miles = parseMiles(distance)
+            let miles = milesFromDisplay(distance, activity: activity)
             let result = try await APIService.shared.generateRoute(
                 profile: appState.userProfile,
                 latitude: suggestion.lat,
                 longitude: suggestion.lng,
                 distanceMiles: miles,
                 customRequest: nil,
-                routeType: "loop"
+                routeType: "loop",
+                activity: activity
             )
             if case .route(let route) = result {
                 generatedRoute = route

@@ -1,5 +1,23 @@
 import Foundation
 
+// ActivityKind is whether a route is a run or a walk.
+//
+// `enum ... : String` means each case has a matching text value (`.run`
+// ⇄ "run"), so `Codable` can save/load it as a plain string in JSON and we can
+// send `.rawValue` to the backend. The two computed properties (`noun`,
+// `symbol`) are just convenience: a computed `var` runs its code each time it's
+// read — it stores nothing — so views can write `activity.noun` instead of
+// repeating the same `if` everywhere.
+enum ActivityKind: String, Codable {
+    case run
+    case walk
+
+    // Capitalized noun for on-screen copy: "Run" / "Walk".
+    var noun: String { self == .walk ? "Walk" : "Run" }
+    // SF Symbol name for the history list + toggles.
+    var symbol: String { self == .walk ? "figure.walk" : "figure.run" }
+}
+
 // LocalRun is the shape we save on-device for run history.
 // It mirrors the JS `runData` object from RunScreen.js.
 // Distances are in miles and duration is in seconds — same as the RN app.
@@ -19,6 +37,16 @@ struct LocalRun: Codable, Identifiable {
     // the synthesized memberwise initializer treat it as optional, so existing
     // `LocalRun(...)` call sites that don't pass it still compile unchanged.
     var waypoints: [Waypoint]? = nil
+
+    // Whether this was a run or a walk. Optional with a nil default for the same
+    // reason as `waypoints` above: runs saved before this field existed have no
+    // `activity` key in UserDefaults, and an Optional decodes a missing key as
+    // nil instead of throwing. The default also keeps the synthesized memberwise
+    // initializer happy, so existing `LocalRun(...)` call sites still compile.
+    var activity: ActivityKind? = nil
+
+    // Non-optional accessor for views: legacy/nil records read as `.run`.
+    var activityKind: ActivityKind { activity ?? .run }
 
     // Converts to the backend Run shape (km, startedAt/endedAt) for postRun().
     func toBackendRun() -> Run {
@@ -55,6 +83,19 @@ func haversineDistanceMiles(_ lat1: Double, _ lon1: Double, _ lat2: Double, _ lo
 // Parses "3 mi", "3.5 mi", or bare "3.5" into a Double of miles.
 func parseMiles(_ s: String) -> Double {
     Double(s.replacingOccurrences(of: " mi", with: "").trimmingCharacters(in: .whitespaces)) ?? 3.0
+}
+
+// Converts a display distance string into miles, honoring the activity's unit.
+// Runs are entered in miles ("3 mi"); walks are entered as minutes ("30 min")
+// and converted at a steady ~3 mph (20 min/mile). The backend always works in
+// distance, so this is where "minutes" becomes a target distance for a walk.
+func milesFromDisplay(_ s: String, activity: ActivityKind) -> Double {
+    guard activity == .walk else { return parseMiles(s) }
+    let cleaned = s.lowercased()
+        .replacingOccurrences(of: "min", with: "")
+        .trimmingCharacters(in: .whitespaces)
+    let minutes = Double(cleaned) ?? 30
+    return minutes / 20.0
 }
 
 // Compass bearing in degrees (0–360, 0 = north) from point A to point B.

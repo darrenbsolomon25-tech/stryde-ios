@@ -7,6 +7,8 @@ struct BuildRunView: View {
     let profile: UserProfile?
     let coordinate: CLLocationCoordinate2D
 
+    private var appState = AppState.shared
+
     @State private var routeType = "loop"
     @State private var selectedDistance: String? = nil
     @State private var customDistance = ""
@@ -36,7 +38,11 @@ struct BuildRunView: View {
         _selectedTerrain = State(initialValue: profile?.terrain ?? [])
     }
 
+    private var activity: ActivityKind { appState.effectiveActivity }
+    private var distanceUnit: String { activity == .walk ? "min" : "mi" }
+
     private var quickDistances: [String] {
+        if activity == .walk { return ["20 min", "30 min", "45 min", "60 min"] }
         switch profile?.fitnessLevel {
         case "Advanced": return ["3 mi", "5 mi", "8 mi"]
         case "Intermediate": return ["2 mi", "3 mi", "5 mi"]
@@ -46,9 +52,35 @@ struct BuildRunView: View {
 
     private var canGenerate: Bool { selectedDistance != nil || !customDistance.isEmpty }
 
+    // The chosen distance as a display string, honoring the activity's unit and a
+    // sensible default. Centralizes what the generate/genParams paths compute.
+    private var distanceString: String {
+        if !customDistance.isEmpty { return customDistance + " " + distanceUnit }
+        return selectedDistance ?? (activity == .walk ? "30 min" : "3 mi")
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
+                // Run/Walk toggle — only "both" users pick per route. Reuses the
+                // String-based segmentedControl by mapping to selectedActivity's
+                // rawValue; flipping it clears the pick since the unit changes.
+                if appState.showsActivityToggle {
+                    buildLabel("Activity")
+                    segmentedControl(
+                        options: [("run", "Run"), ("walk", "Walk")],
+                        selected: Binding(
+                            get: { appState.selectedActivity.rawValue },
+                            set: {
+                                appState.selectedActivity = ActivityKind(rawValue: $0) ?? .run
+                                selectedDistance = nil
+                                customDistance = ""
+                            }
+                        )
+                    )
+                    .padding(.bottom, 20)
+                }
+
                 buildLabel("Route Type")
                 segmentedControl(
                     options: [("loop", "Loop"), ("one-way", "One Way")],
@@ -67,8 +99,8 @@ struct BuildRunView: View {
                         }
                     )
                 )
-                // Custom distance text field mixed in with the chips
-                TextField("mi", text: $customDistance)
+                // Custom distance/time text field mixed in with the chips
+                TextField(distanceUnit, text: $customDistance)
                     .keyboardType(.decimalPad)
                     .multilineTextAlignment(.center)
                     .font(.system(size: 14, weight: .medium))
@@ -161,7 +193,7 @@ struct BuildRunView: View {
             .padding(.bottom, 32)
         }
         .background(Color(hex: "#27272D").ignoresSafeArea())
-        .navigationTitle("Build My Run")
+        .navigationTitle("Build My \(activity.noun)")
         .navigationBarTitleDisplayMode(.inline)
         .toolbarColorScheme(.dark, for: .navigationBar)
         .navigationDestination(isPresented: $navigateToPreview) {
@@ -196,7 +228,7 @@ struct BuildRunView: View {
     // MARK: - Generation
 
     private func handleGenerate() async {
-        let distance = customDistance.isEmpty ? (selectedDistance ?? "3 mi") : (customDistance + " mi")
+        let distance = distanceString
         loading = true
         defer { loading = false }
         do {
@@ -209,9 +241,10 @@ struct BuildRunView: View {
                 profile: modifiedProfile,
                 latitude: coordinate.latitude,
                 longitude: coordinate.longitude,
-                distanceMiles: parseMiles(distance),
+                distanceMiles: milesFromDisplay(distance, activity: activity),
                 customRequest: fullRequest.isEmpty ? nil : fullRequest,
-                routeType: routeType
+                routeType: routeType,
+                activity: activity
             )
             switch result {
             case .suggestedStart(let s):
@@ -222,7 +255,8 @@ struct BuildRunView: View {
                 let snapDist = w0.map {
                     haversineDistanceMiles(coordinate.latitude, coordinate.longitude, $0.latitude, $0.longitude) * 1609.34
                 } ?? 0
-                if snapDist > 150, let w0 {
+                // Walks start at the door — only a run offers to relocate.
+                if snapDist > 150, activity == .run, let w0 {
                     let dir = bearingCardinal(coordinate.latitude, coordinate.longitude, w0.latitude, w0.longitude)
                     routeCoord = coordinate
                     snapMessage = "Walk ~\(Int(snapDist))m \(dir) to reach your starting point."
@@ -239,7 +273,7 @@ struct BuildRunView: View {
     }
 
     private func generateFromSuggestion(_ s: SuggestedStart) async {
-        let distance = customDistance.isEmpty ? (selectedDistance ?? "3 mi") : (customDistance + " mi")
+        let distance = distanceString
         loading = true
         defer { loading = false }
         do {
@@ -251,9 +285,10 @@ struct BuildRunView: View {
             let result = try await APIService.shared.generateRoute(
                 profile: modifiedProfile,
                 latitude: s.lat, longitude: s.lng,
-                distanceMiles: parseMiles(distance),
+                distanceMiles: milesFromDisplay(distance, activity: activity),
                 customRequest: fullRequest.isEmpty ? nil : fullRequest,
-                routeType: routeType
+                routeType: routeType,
+                activity: activity
             )
             if case .route(let route) = result {
                 generatedRoute = route
@@ -267,7 +302,7 @@ struct BuildRunView: View {
     }
 
     private func buildGenParams() -> GenParams {
-        let distance = customDistance.isEmpty ? (selectedDistance ?? "3 mi") : (customDistance + " mi")
+        let distance = distanceString
         let fullRequest = [customRequest, "Elevation preference: \(selectedElevation)"]
             .filter { !$0.isEmpty }.joined(separator: ". ")
         var modifiedProfile = profile
@@ -276,7 +311,8 @@ struct BuildRunView: View {
             profile: modifiedProfile,
             distance: distance,
             customRequest: fullRequest.isEmpty ? nil : fullRequest,
-            routeType: routeType
+            routeType: routeType,
+            activity: activity
         )
     }
 
