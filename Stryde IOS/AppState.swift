@@ -90,6 +90,17 @@ class AppState {
     /// Only "both" users choose per route, so only they see the toggle.
     var showsActivityToggle: Bool { activityMode == .both }
 
+    /// Noun for home-screen buttons/titles, based on the user's *mode* (not the
+    /// per-route pick). A "both" user gets the neutral "Route" since either could
+    /// be coming next; single-mode users get their activity.
+    var activityNoun: String {
+        switch activityMode {
+        case .run:  return "Run"
+        case .walk: return "Walk"
+        case .both: return "Route"
+        }
+    }
+
     // MARK: - Navigation
 
     /// Pops the entire run flow back to Home in one tap.

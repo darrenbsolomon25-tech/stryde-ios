@@ -135,7 +135,9 @@ struct HomeView: View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {
                 // Clerk gives us the signed-in user's first name.
-                Text("Good \(activity.noun.lowercased()), \(Clerk.shared.user?.firstName ?? "there")")
+                Text(appState.activityMode == .both
+                     ? "Good to see you, \(Clerk.shared.user?.firstName ?? "there")"
+                     : "Good \(activity.noun.lowercased()), \(Clerk.shared.user?.firstName ?? "there")")
                     .font(.system(size: 24, weight: .bold))
                     .foregroundColor(.white)
                 Text("Where are we going today?")
@@ -264,7 +266,7 @@ struct HomeView: View {
                 Button {
                     if coordinate != nil { quickRunActive = true }
                 } label: {
-                    Text("Quick \(activity.noun)")
+                    Text("Quick \(appState.activityNoun)")
                         .font(.system(size: 16, weight: .bold))
                         .foregroundColor(Color(hex: "#27272D"))
                         .frame(maxWidth: .infinity)
@@ -277,7 +279,7 @@ struct HomeView: View {
                 Button {
                     if coordinate != nil { appState.showBuildRun = true }
                 } label: {
-                    Text("Build My \(activity.noun)")
+                    Text("Build My \(appState.activityNoun)")
                         .font(.system(size: 16, weight: .bold))
                         .foregroundColor(.white)
                         .frame(maxWidth: .infinity)

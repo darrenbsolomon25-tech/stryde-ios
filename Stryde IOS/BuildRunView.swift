@@ -193,7 +193,7 @@ struct BuildRunView: View {
             .padding(.bottom, 32)
         }
         .background(Color(hex: "#27272D").ignoresSafeArea())
-        .navigationTitle("Build My \(activity.noun)")
+        .navigationTitle("Build My \(appState.activityNoun)")
         .navigationBarTitleDisplayMode(.inline)
         .toolbarColorScheme(.dark, for: .navigationBar)
         .navigationDestination(isPresented: $navigateToPreview) {
